@@ -21,7 +21,7 @@ const XSTS_URL: &str = "https://xsts.auth.xboxlive.com/xsts/authorize";
 const MC_LOGIN_URL: &str = "https://api.minecraftservices.com/authentication/login_with_xbox";
 const MC_PROFILE_URL: &str = "https://api.minecraftservices.com/minecraft/profile";
 const SCOPE: &str = "XboxLive.signin offline_access";
-const KEYRING_SERVICE: &str = "app.shard.launcher";
+pub(crate) const KEYRING_SERVICE: &str = "app.shard.launcher";
 
 /// Ошибки входа отдаются фронтенду кодом `auth:<код>`, текст подбирается там по языку интерфейса.
 fn auth_error(code: &str) -> Error {
@@ -325,6 +325,12 @@ async fn minecraft_from_ms(state: &AppState, ms_token: &str) -> Result<(CachedMc
         expires_at: chrono::Utc::now().timestamp() + login.expires_in - 300,
     };
     Ok((cached, profile))
+}
+
+/// Токен из кеша без обращения к сети, если он действует ещё хотя бы 10 минут. Для быстрого запуска.
+pub fn cached_minecraft_token(uuid: &str) -> Option<String> {
+    let cached = read_secret::<CachedMcToken>("mc", uuid).ok()??;
+    (cached.expires_at > chrono::Utc::now().timestamp() + 600).then_some(cached.token)
 }
 
 /// Действующий токен Minecraft для запуска: из кеша или через refresh-токен.

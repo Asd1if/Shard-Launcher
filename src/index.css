@@ -413,6 +413,11 @@
 .backdrop-blob {
   animation: backdrop-drift 30s ease-in-out infinite;
 }
+/* Игра запущена или окно не в фокусе — фон замирает */
+[data-paused] .backdrop-blob,
+[data-paused] .backdrop-anim {
+  animation-play-state: paused;
+}
 @media (prefers-reduced-motion: reduce) {
   .backdrop-blob {
     animation: none;

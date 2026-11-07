@@ -58,7 +58,7 @@ pub fn run() {
             let state = state::AppState::new(root);
             state.paths.migrate_instance_folders();
             server::migrate(&state.paths);
-            let loaded = settings::load(&state.paths);
+            let loaded = settings::load_full(&state.paths);
             content::curseforge::set_user_key(loaded.curseforge_key.clone());
             let discord_disabled = loaded.discord_disabled;
             app.manage(state);

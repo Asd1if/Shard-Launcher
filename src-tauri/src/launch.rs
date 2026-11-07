@@ -93,8 +93,38 @@ pub async fn launch_instance(app: AppHandle, state: State<'_, AppState>, id: Str
     result
 }
 
+/// Метка «сборка проверена»: после удачного запуска лаунчер помнит, с какими файлами она шла,
+/// и при следующем запуске не проверяет их заново. Смена версии, загрузчика или Java её сбрасывает,
+/// вылет — удаляет.
+fn verified_marker(state: &AppState, id: &str) -> Result<PathBuf> {
+    Ok(state.paths.instance_dir(id)?.join(".shard-verified"))
+}
+
+fn verified_key(instance: &instances::Instance, java: Option<&PathBuf>) -> String {
+    format!(
+        "{}|{:?}|{:?}|{}|{}",
+        instance.mc_version,
+        instance.loader,
+        instance.loader_version,
+        java.map(|p| p.to_string_lossy().into_owned()).unwrap_or_default(),
+        env!("CARGO_PKG_VERSION"),
+    )
+}
+
+pub(crate) fn forget_verified(state: &AppState, id: &str) {
+    if let Ok(path) = verified_marker(state, id) {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
 async fn start(app: &AppHandle, state: &AppState, id: &str, join: bool) -> Result<()> {
     let mut instance = instances::load(&state.paths, id)?;
+    let global = crate::settings::load(&state.paths);
+    let java_override = instance.settings.java_path.as_ref().or(global.default_java_path.as_ref()).map(PathBuf::from);
+    let key = verified_key(&instance, java_override.as_ref());
+    let marker = verified_marker(state, id)?;
+    let quick = instance.loader_version.is_some() || instance.loader.is_none();
+    let quick = quick && std::fs::read_to_string(&marker).is_ok_and(|k| k == key);
     let accounts = accounts::load(&state.paths)?;
     let account = accounts.current().ok_or_else(|| Error::msg("no account selected"))?;
     let player = match account.kind {
@@ -104,11 +134,15 @@ async fn start(app: &AppHandle, state: &AppState, id: &str, join: bool) -> Resul
             access_token: "0".to_owned(),
             user_type: "legacy",
         },
-        AccountKind::Microsoft => {
-            let (token, profile) = auth::minecraft_token(state, &account.uuid).await?;
-            accounts::rename(&state.paths, &account.id, &profile.name)?;
-            Player { name: profile.name, uuid: profile.id, access_token: token, user_type: "msa" }
-        }
+        AccountKind::Microsoft => match quick.then(|| auth::cached_minecraft_token(&account.uuid)).flatten() {
+            // Быстрый запуск: токен ещё действует — профиль не перепроверяем по сети
+            Some(token) => Player { name: account.name.clone(), uuid: account.uuid.clone(), access_token: token, user_type: "msa" },
+            None => {
+                let (token, profile) = auth::minecraft_token(state, &account.uuid).await?;
+                accounts::rename(&state.paths, &account.id, &profile.name)?;
+                Player { name: profile.name, uuid: profile.id, access_token: token, user_type: "msa" }
+            }
+        },
     };
 
     // Не шлём событие на каждый из тысяч ассетов — только при смене процента
@@ -148,7 +182,6 @@ async fn start(app: &AppHandle, state: &AppState, id: &str, join: bool) -> Resul
     }
 
     let settings = &instance.settings;
-    let global = crate::settings::load(&state.paths);
     // Общие аргументы JVM первыми: аргументы сборки идут после и побеждают
     let mut extra_jvm = split_args(&global.default_jvm_args);
     extra_jvm.extend(split_args(&settings.jvm_args));
@@ -162,7 +195,6 @@ async fn start(app: &AppHandle, state: &AppState, id: &str, join: bool) -> Resul
         resolution: settings.width.zip(settings.height),
         fullscreen: settings.fullscreen,
     };
-    let java_override = settings.java_path.as_ref().or(global.default_java_path.as_ref()).map(PathBuf::from);
     let plan = game::prepare(
         &state.http,
         &state.paths,
@@ -171,6 +203,7 @@ async fn start(app: &AppHandle, state: &AppState, id: &str, join: bool) -> Resul
         &options,
         java_override,
         &player,
+        quick,
         &mut progress,
     )
     .await?;
@@ -214,6 +247,7 @@ async fn start(app: &AppHandle, state: &AppState, id: &str, join: bool) -> Resul
     instance.last_played = Some(chrono::Utc::now().to_rfc3339());
     instances::save(&state.paths, &instance)?;
     let _ = app.emit("game-started", Started { instance_id: id.to_owned() });
+    let _ = std::fs::write(&marker, &key);
     if !global.discord_disabled {
         let loader = instance.loader.map(|l| format!(" · {}", serde_json::to_value(l).ok().and_then(|v| v.as_str().map(capitalize)).unwrap_or_default())).unwrap_or_default();
         let activity = crate::discord::Activity {
@@ -239,6 +273,8 @@ async fn start(app: &AppHandle, state: &AppState, id: &str, join: bool) -> Resul
         // Код 0 — обычный выход; Fabric при ошибке модов тоже выходит с ненулевым кодом
         let crash = match code {
             Some(c) if c != 0 && !stopped => {
+                // Вылет: в следующий раз проверяем все файлы заново
+                crate::launch::forget_verified(&app.state::<AppState>(), &id);
                 // Дать потокам вывода дочитать последние строки
                 tokio::time::sleep(std::time::Duration::from_millis(300)).await;
                 let lines: Vec<String> = tail.lock().map(|t| t.iter().cloned().collect()).unwrap_or_default();

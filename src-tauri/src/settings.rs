@@ -51,11 +51,50 @@ pub struct Settings {
     pub backup_keep: u32,
 }
 
+/// Настройки из settings.json. Ключа CurseForge здесь нет — он в хранилище учётных данных, см. `load_full`.
 pub fn load(paths: &Paths) -> Settings {
     std::fs::read(paths.root.join("settings.json"))
         .ok()
         .and_then(|bytes| serde_json::from_slice(&bytes).ok())
         .unwrap_or_default()
+}
+
+// Ключ CurseForge хранится в системном хранилище учётных данных, а не открытым текстом в settings.json
+fn cf_entry() -> Option<keyring::Entry> {
+    keyring::Entry::new(crate::auth::KEYRING_SERVICE, "curseforge-key").ok()
+}
+
+fn cf_key_read() -> Option<String> {
+    cf_entry()?.get_password().ok().filter(|k| !k.is_empty())
+}
+
+/// Сохраняет ключ в хранилище. false — хранилище недоступно, ключ остаётся в файле.
+fn cf_key_write(key: Option<&str>) -> bool {
+    let Some(entry) = cf_entry() else { return false };
+    match key {
+        Some(k) => entry.set_password(k).is_ok(),
+        None => matches!(entry.delete_credential(), Ok(()) | Err(keyring::Error::NoEntry)),
+    }
+}
+
+fn save_file(paths: &Paths, settings: &Settings) -> Result<()> {
+    let mut on_disk = settings.clone();
+    if cf_key_write(settings.curseforge_key.as_deref()) {
+        on_disk.curseforge_key = None;
+    }
+    std::fs::write(paths.root.join("settings.json"), serde_json::to_vec_pretty(&on_disk)?)?;
+    Ok(())
+}
+
+/// Настройки вместе с ключом CurseForge. Старый ключ из settings.json переносится в хранилище.
+pub fn load_full(paths: &Paths) -> Settings {
+    let mut settings = load(paths);
+    if settings.curseforge_key.is_some() {
+        let _ = save_file(paths, &settings);
+    } else {
+        settings.curseforge_key = cf_key_read();
+    }
+    settings
 }
 
 /// Память новой сборки: из общих настроек, иначе 4 ГБ с загрузчиком модов и 2 ГБ без.
@@ -64,8 +103,8 @@ pub fn new_instance_memory(paths: &Paths, modded: bool) -> u32 {
 }
 
 #[tauri::command]
-pub fn settings_get(state: State<'_, AppState>) -> Settings {
-    load(&state.paths)
+pub async fn settings_get(state: State<'_, AppState>) -> Result<Settings> {
+    Ok(load_full(&state.paths))
 }
 
 #[tauri::command]
@@ -77,7 +116,7 @@ pub async fn settings_set(state: State<'_, AppState>, settings: Settings) -> Res
     settings.default_java_path = settings.default_java_path.map(|p| p.trim().to_owned()).filter(|p| !p.is_empty());
     settings.curseforge_key = settings.curseforge_key.map(|k| k.trim().to_owned()).filter(|k| !k.is_empty());
     crate::content::curseforge::set_user_key(settings.curseforge_key.clone());
-    std::fs::write(state.paths.root.join("settings.json"), serde_json::to_vec_pretty(&settings)?)?;
+    save_file(&state.paths, &settings)?;
     tauri::async_runtime::spawn(crate::discord::set_disabled(settings.discord_disabled));
     Ok(settings)
 }

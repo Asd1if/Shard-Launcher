@@ -23,6 +23,10 @@ impl AppState {
     pub fn new(root: PathBuf) -> Self {
         let http = reqwest::Client::builder()
             .user_agent(concat!("Shard/", env!("CARGO_PKG_VERSION")))
+            // Без таймаутов застрявшее соединение вешает загрузку навсегда. read_timeout — пауза
+            // между кусками данных, а не общее время, поэтому большие файлы он не обрывает
+            .connect_timeout(std::time::Duration::from_secs(15))
+            .read_timeout(std::time::Duration::from_secs(45))
             .build()
             .expect("http client");
         Self {

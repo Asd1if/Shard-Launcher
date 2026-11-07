@@ -213,7 +213,7 @@ fn read_entry(archive: &mut zip::ZipArchive<std::fs::File>, name: &str) -> Resul
     let mut entry = archive
         .by_name(name)
         .map_err(|_| Error::msg(format!("loader_install_failed: {name} missing in installer")))?;
-    let mut bytes = Vec::with_capacity(entry.size() as usize);
+    let mut bytes = Vec::with_capacity((entry.size() as usize).min(1 << 24));
     entry.read_to_end(&mut bytes)?;
     Ok(bytes)
 }
@@ -269,17 +269,18 @@ fn unpack(installer: &Path, libraries_dir: &Path, work: &Path) -> Result<Unpacke
             continue;
         }
         let name = entry.name().to_owned();
+        // Пути из архива — только внутрь своих папок
         let target = if let Some(rel) = name.strip_prefix("maven/") {
-            libraries_dir.join(rel)
+            crate::modpack::safe_join(libraries_dir, rel)?
         } else if data_files.contains(&name) {
-            work.join(&name)
+            crate::modpack::safe_join(work, &name)?
         } else {
             continue;
         };
         if target.metadata().is_ok_and(|m| m.len() == entry.size()) {
             continue;
         }
-        let mut bytes = Vec::with_capacity(entry.size() as usize);
+        let mut bytes = Vec::with_capacity((entry.size() as usize).min(1 << 24));
         entry.read_to_end(&mut bytes)?;
         write_file(&target, &bytes)?;
     }

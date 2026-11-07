@@ -67,6 +67,7 @@ export function errorText(error: unknown) {
     update_game_running: "updateGameRunning",
     update_none: "updateNone",
     update_bad_asset: "updateBadAsset",
+    update_bad_hash: "updateBadHash",
     file_too_large: "fileTooLarge",
     file_binary: "fileBinary",
     player_not_found: "playerNotFound",

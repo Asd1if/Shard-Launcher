@@ -31,8 +31,8 @@ pub enum PackFormat {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase", tag = "stage")]
 pub enum PackProgress {
-    /// Скачивание архива по ссылке
-    Fetch,
+    /// Скачивание архива по ссылке; total = 0, пока размер не известен
+    Fetch { done: u64, total: u64 },
     Files { done: usize, total: usize },
     Overrides,
     /// Поиск файлов на Modrinth и CurseForge при экспорте
@@ -119,7 +119,7 @@ pub(super) fn save_pack_files(paths: &Paths, id: &str, files: &[String]) -> Resu
 fn read_entry(archive: &mut zip::ZipArchive<std::fs::File>, name: &str) -> Result<Option<Vec<u8>>> {
     match archive.by_name(name) {
         Ok(mut entry) => {
-            let mut bytes = Vec::with_capacity(entry.size() as usize);
+            let mut bytes = Vec::with_capacity((entry.size() as usize).min(1 << 24));
             entry.read_to_end(&mut bytes)?;
             Ok(Some(bytes))
         }
@@ -176,13 +176,33 @@ fn unique_name(paths: &Paths, name: &str) -> String {
     (2..).map(|n| format!("{name} ({n})")).find(|n| !taken.contains(n)).expect("infinite range")
 }
 
-/// Скачивает архив во временную папку.
-async fn fetch_pack(state: &AppState, url: &str) -> Result<PathBuf> {
-    let bytes = state.http.get(url).send().await?.error_for_status()?.bytes().await?;
+/// Скачивает архив во временную папку, по кускам и с прогрессом.
+async fn fetch_pack(state: &AppState, url: &str, progress: Option<&Channel<PackProgress>>) -> Result<PathBuf> {
+    use tokio::io::AsyncWriteExt;
+    let mut response = state.http.get(url).send().await?.error_for_status()?;
+    let total = response.content_length().unwrap_or(0);
     let dir = state.paths.root.join("tmp");
     std::fs::create_dir_all(&dir)?;
     let path = dir.join(format!("import-{}.zip", uuid::Uuid::new_v4()));
-    std::fs::write(&path, &bytes)?;
+    let result = async {
+        let mut file = tokio::fs::File::create(&path).await?;
+        let (mut done, mut sent) = (0u64, std::time::Instant::now());
+        while let Some(chunk) = response.chunk().await? {
+            file.write_all(&chunk).await?;
+            done += chunk.len() as u64;
+            if let Some(p) = progress.filter(|_| sent.elapsed().as_millis() >= 100) {
+                sent = std::time::Instant::now();
+                let _ = p.send(PackProgress::Fetch { done, total });
+            }
+        }
+        file.flush().await?;
+        Ok::<_, Error>(())
+    }
+    .await;
+    if let Err(e) = result {
+        let _ = std::fs::remove_file(&path);
+        return Err(e);
+    }
     Ok(path)
 }
 
@@ -219,15 +239,15 @@ async fn resolve(
     if let Some(path) = &args.path {
         return Ok((PathBuf::from(path), false, None));
     }
-    let _ = progress.send(PackProgress::Fetch);
+    let _ = progress.send(PackProgress::Fetch { done: 0, total: 0 });
     if let Some(url) = &args.url {
         let url = url.trim();
         let Some(slug) = mrpack::modrinth_project_slug(url) else {
-            return Ok((fetch_pack(state, url).await?, true, None));
+            return Ok((fetch_pack(state, url, Some(progress)).await?, true, None));
         };
         let version = mrpack::pack_version(&state.http, &slug, args.version_id.as_deref()).await?;
         let file = version.primary_file().ok_or_else(|| Error::msg("pack_not_found"))?;
-        let path = fetch_pack(state, &file.url).await?;
+        let path = fetch_pack(state, &file.url, Some(progress)).await?;
         let icon_url = modrinth::project(&state.http, &version.project_id).await.ok().and_then(|p| p.icon_url);
         let origin = PackOrigin {
             source: Source::Modrinth,
@@ -243,7 +263,7 @@ async fn resolve(
         let file = curseforge::pack_file(state, id, file_id).await?;
         // Автор запретил стороннюю загрузку — архив придётся скачать на сайте и импортировать файлом
         let url = file.download_url.clone().ok_or_else(|| Error::msg("pack_manual_download"))?;
-        let path = fetch_pack(state, &url).await?;
+        let path = fetch_pack(state, &url, Some(progress)).await?;
         let icon_url = content::curseforge::get_mod(&state.http, id).await.ok().and_then(|m| m.logo?.thumbnail_url);
         let origin = PackOrigin {
             source: Source::Curseforge,

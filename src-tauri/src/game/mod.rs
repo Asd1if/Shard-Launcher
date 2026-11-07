@@ -58,38 +58,45 @@ pub async fn prepare(
     options: &args::LaunchOptions,
     java_override: Option<PathBuf>,
     player: &Player,
+    quick: bool,
     mut progress: impl FnMut(Stage, usize, usize),
 ) -> Result<LaunchPlan> {
     tokio::fs::create_dir_all(&game_dir).await?;
     let version_dir = paths.version_dir(&version.id);
 
     // Клиент
+    // quick — сборка уже запускалась с этими же файлами: проверку клиента, библиотек и ассетов пропускаем
     progress(Stage::Version, 0, 1);
     let client_jar = version_dir.join(format!("{}.jar", version.id));
     let c = &version.downloads.client;
-    download_one(
-        client,
-        &Download { url: c.url.clone(), path: client_jar.clone(), sha1: c.sha1.clone(), size: c.size },
-    )
-    .await?;
+    if !quick {
+        download_one(
+            client,
+            &Download { url: c.url.clone(), path: client_jar.clone(), sha1: c.sha1.clone(), size: c.size },
+        )
+        .await?;
+    }
     progress(Stage::Version, 1, 1);
 
     // Библиотеки и нативные файлы
     let libs = libraries::resolve(&version.libraries, &paths.libraries());
-    crate::download::download_all(client, libs.downloads, |d, t| progress(Stage::Libraries, d, t)).await?;
     let natives_dir = version_dir.join("natives");
-    let native_jars = libs.native_jars.clone();
-    let natives_target = natives_dir.clone();
-    tokio::task::spawn_blocking(move || libraries::extract_natives(&native_jars, &natives_target))
-        .await
-        .map_err(|e| crate::error::Error::msg(e.to_string()))??;
+    if !quick {
+        crate::download::download_all(client, libs.downloads, |d, t| progress(Stage::Libraries, d, t)).await?;
+        let native_jars = libs.native_jars.clone();
+        let natives_target = natives_dir.clone();
+        tokio::task::spawn_blocking(move || libraries::extract_natives(&native_jars, &natives_target))
+            .await
+            .map_err(|e| crate::error::Error::msg(e.to_string()))??;
+    }
 
     // Ассеты
-    let game_assets =
-        assets::ensure(client, &paths.assets(), &game_dir, &version.asset_index, |d, t| {
-            progress(Stage::Assets, d, t)
-        })
-        .await?;
+    let game_assets = if quick {
+        paths.assets().join("virtual").join(&version.asset_index.id)
+    } else {
+        assets::ensure(client, &paths.assets(), &game_dir, &version.asset_index, |d, t| progress(Stage::Assets, d, t))
+            .await?
+    };
 
     // Java: своя из настроек сборки или автоматическая от Mojang
     let java = match java_override {

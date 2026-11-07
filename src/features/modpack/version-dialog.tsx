@@ -207,9 +207,9 @@ export function PackVersionDialog() {
                       {running && (
                         <ProgressBar
                           className="mt-2"
-                          unit="count"
+                          unit={progress?.stage === "fetch" ? "bytes" : "count"}
                           label={t(`modpack.stage.${progress?.stage ?? "start"}`)}
-                          progress={progress && "total" in progress ? { done: progress.done, total: progress.total } : null}
+                          progress={progress && "total" in progress && progress.total > 0 ? { done: progress.done, total: progress.total } : null}
                         />
                       )}
                     </div>

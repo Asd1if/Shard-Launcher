@@ -168,7 +168,7 @@ fn unzip(path: &Path, to: &Path) -> Result<()> {
         if let Some(parent) = target.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let mut bytes = Vec::with_capacity(entry.size() as usize);
+        let mut bytes = Vec::with_capacity((entry.size() as usize).min(1 << 24));
         entry.read_to_end(&mut bytes)?;
         std::fs::write(target, bytes)?;
     }

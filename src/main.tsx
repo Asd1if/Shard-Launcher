@@ -5,13 +5,29 @@ import "./index.css";
 import "./i18n";
 import { AppLayout } from "@/app/layout";
 import { HomePage } from "@/routes/home";
-import { InstancePage, InstancesPage } from "@/routes/instances";
-import { ModpacksPage } from "@/routes/modpacks";
-import { NewServerPage, ServerPage, ServersPage } from "@/routes/servers";
-import { SettingsPage } from "@/routes/settings";
 
-// three.js для 3D-скина нужен только на этой странице — грузим её отдельно
-const SkinsPage = React.lazy(() => import("@/routes/skins").then((m) => ({ default: m.SkinsPage })));
+// Сразу грузится только главная; остальные страницы — отдельными файлами
+const pages = {
+  instances: () => import("@/routes/instances"),
+  modpacks: () => import("@/routes/modpacks"),
+  servers: () => import("@/routes/servers"),
+  settings: () => import("@/routes/settings"),
+  skins: () => import("@/routes/skins"),
+};
+
+function page<K extends keyof typeof pages>(key: K, name: string) {
+  const Lazy = React.lazy(() => pages[key]().then((m) => ({ default: (m as unknown as Record<string, React.ComponentType>)[name] })));
+  return (
+    <React.Suspense fallback={null}>
+      <Lazy />
+    </React.Suspense>
+  );
+}
+
+// Остальные страницы догружаются в фоне, когда главная уже на экране: переходы потом мгновенные
+const preload = () => Object.values(pages).forEach((load) => void load());
+if ("requestIdleCallback" in window) window.requestIdleCallback(preload, { timeout: 2500 });
+else setTimeout(preload, 1500);
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
@@ -19,21 +35,14 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
       <Routes>
         <Route element={<AppLayout />}>
           <Route index element={<HomePage />} />
-          <Route path="instances" element={<InstancesPage />} />
-          <Route path="instances/:id" element={<InstancePage />} />
-          <Route path="modpacks" element={<ModpacksPage />} />
-          <Route path="servers" element={<ServersPage />} />
-          <Route path="servers/new" element={<NewServerPage />} />
-          <Route path="servers/:id" element={<ServerPage />} />
-          <Route
-            path="skins"
-            element={
-              <React.Suspense fallback={null}>
-                <SkinsPage />
-              </React.Suspense>
-            }
-          />
-          <Route path="settings" element={<SettingsPage />} />
+          <Route path="instances" element={page("instances", "InstancesPage")} />
+          <Route path="instances/:id" element={page("instances", "InstancePage")} />
+          <Route path="modpacks" element={page("modpacks", "ModpacksPage")} />
+          <Route path="servers" element={page("servers", "ServersPage")} />
+          <Route path="servers/new" element={page("servers", "NewServerPage")} />
+          <Route path="servers/:id" element={page("servers", "ServerPage")} />
+          <Route path="skins" element={page("skins", "SkinsPage")} />
+          <Route path="settings" element={page("settings", "SettingsPage")} />
         </Route>
       </Routes>
     </HashRouter>

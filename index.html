@@ -4,18 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Shard Launcher</title>
-    <script>
-      try {
-        var t = localStorage.getItem("shard.theme");
-        var dark = window.matchMedia("(prefers-color-scheme: dark)").matches ? "graphite" : "light";
-        if (t === "system") t = dark;
-        if (t === "auto") {
-          var b = JSON.parse(localStorage.getItem("shard.backdrop") || "null");
-          t = b && b.kind === "custom" && b.custom && typeof b.luma === "number" ? (b.luma > 0.52 ? "light" : "graphite") : dark;
-        }
-        if (["graphite", "light", "amethyst", "emerald", "amber", "ocean", "rose"].indexOf(t) >= 0) document.documentElement.dataset.theme = t;
-      } catch (e) {}
-    </script>
+    <script src="/theme-init.js"></script>
   </head>
 
   <body>

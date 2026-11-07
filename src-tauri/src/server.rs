@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Emitter, State};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncWriteExt, BufReader};
 use tokio::sync::{oneshot, Mutex};
 
 use crate::download::{download_one, Download};
@@ -1140,6 +1140,7 @@ pub async fn server_start(app: AppHandle, state: State<'_, AppState>, id: String
     command
         .arg(format!("-Xmx{}M", config.memory_mb))
         .arg(format!("-Xms{}M", config.memory_mb.min(1024)))
+        .args(["-Dstdout.encoding=UTF-8", "-Dstderr.encoding=UTF-8"])
         .args(config.jvm_args.split_whitespace())
         .args(&config.launch)
         .current_dir(&dir)
@@ -1203,8 +1204,10 @@ pub async fn server_start(app: AppHandle, state: State<'_, AppState>, id: String
         let Some(stream) = stream else { continue };
         let (app, id) = (app.clone(), id.clone());
         tauri::async_runtime::spawn(async move {
-            let mut lines = BufReader::new(stream).lines();
-            while let Ok(Some(line)) = lines.next_line().await {
+            // Java на Windows пишет в канал в кодировке консоли (cp1251): битые байты не должны обрывать
+            // чтение, иначе канал переполнится и сервер зависнет на записи в лог
+            let (mut reader, mut buf) = (BufReader::new(stream), Vec::new());
+            while let Some(line) = crate::launch::next_line_lossy(&mut reader, &mut buf).await {
                 if !stderr && line.contains("]: Done (") {
                     set_status(&app, &id, Status::Running).await;
                 }

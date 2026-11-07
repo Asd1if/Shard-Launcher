@@ -180,7 +180,7 @@ fn unpack_server_zip(archive: &Path, dir: &Path) -> Result<()> {
         if let Some(parent) = target.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let mut bytes = Vec::with_capacity(entry.size() as usize);
+        let mut bytes = Vec::with_capacity((entry.size() as usize).min(1 << 24));
         entry.read_to_end(&mut bytes)?;
         std::fs::write(target, bytes)?;
     }
@@ -197,7 +197,7 @@ fn common_root(names: &[String]) -> Option<String> {
 async fn modrinth_pack(state: &AppState, origin: &PackOrigin, dir: &Path, step: &(dyn Fn(usize, usize) + Sync)) -> Result<()> {
     let version = super::mrpack::pack_version(&state.http, &origin.project_id, origin.version_id.as_deref()).await?;
     let file = version.primary_file().ok_or_else(|| Error::msg("pack_not_found"))?;
-    let archive = fetch_pack(state, &file.url).await?;
+    let archive = fetch_pack(state, &file.url, None).await?;
     let result = async {
         let mut zip = zip::ZipArchive::new(std::fs::File::open(&archive)?)?;
         let index: Index = {

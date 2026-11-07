@@ -59,7 +59,7 @@ async fn smoke_launch_vanilla() {
     };
     let game_dir = root.join("smoke-game");
     let options = game::args::LaunchOptions { memory_mb: 3072, ..Default::default() };
-    let plan = game::prepare(&state.http, &state.paths, &version, game_dir, &options, None, &player, &mut progress)
+    let plan = game::prepare(&state.http, &state.paths, &version, game_dir, &options, None, &player, false, &mut progress)
         .await
         .unwrap();
 

@@ -61,7 +61,7 @@ fn read_zip<R: Read + Seek>(reader: R, depth: u8) -> Option<ModMeta> {
             .collect();
         for name in nested {
             let Ok(mut entry) = zip.by_name(&name) else { continue };
-            let mut bytes = Vec::with_capacity(entry.size() as usize);
+            let mut bytes = Vec::with_capacity((entry.size() as usize).min(1 << 24));
             if entry.read_to_end(&mut bytes).is_err() {
                 continue;
             }

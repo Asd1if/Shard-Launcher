@@ -1,6 +1,6 @@
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
-import { isTauri } from "@/lib/backend";
+import { backend, isTauri } from "@/lib/backend";
 import { cn } from "@/lib/utils";
 import { refreshTheme } from "@/theme";
 
@@ -104,6 +104,27 @@ export function useBackdropTone() {
 
 const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
+/*
+ * Пауза анимаций фона, пока идёт игра или окно не в фокусе: лаунчер не отнимает GPU и CPU у Minecraft.
+ * Холсты пропускают кадры, CSS-анимации замирают через data-paused на <html>.
+ */
+const running = new Set<string>();
+let focused = document.hasFocus();
+const paused = () => running.size > 0 || !focused || document.hidden;
+const syncPaused = () => {
+  if (paused()) document.documentElement.dataset.paused = "";
+  else delete document.documentElement.dataset.paused;
+};
+window.addEventListener("focus", () => ((focused = true), syncPaused()));
+window.addEventListener("blur", () => ((focused = false), syncPaused()));
+document.addEventListener("visibilitychange", syncPaused);
+if (isTauri) {
+  void backend.on("game-started", ({ instanceId }) => (running.add(instanceId), syncPaused()));
+  void backend.on("game-exited", ({ instanceId }) => (running.delete(instanceId), syncPaused()));
+  void backend.running().then((ids) => (ids.forEach((id) => running.add(id)), syncPaused()));
+}
+syncPaused();
+
 /** Цвета активной темы — фон подстраивается под графит, аметист и светлую. */
 function themeColors() {
   const css = getComputedStyle(document.documentElement);
@@ -172,6 +193,10 @@ function PixelField() {
       }));
     };
     const draw = (time: number) => {
+      if (!still && paused()) {
+        frame = requestAnimationFrame(draw);
+        return;
+      }
       ctx.clearRect(0, 0, w, h);
       ctx.fillStyle = brand;
       for (const s of sparks) {
@@ -233,6 +258,10 @@ function Landscape() {
       { base: 0.82, amp: 6, seed: 7.7, speed: 0.12, alpha: 0.5 },
     ];
     const draw = (time: number) => {
+      if (!still && paused()) {
+        frame = requestAnimationFrame(draw);
+        return;
+      }
       const t = still ? 0 : time / 16;
       ctx.clearRect(0, 0, w, h);
       ctx.fillStyle = "#ffffff";
@@ -305,6 +334,10 @@ function CanvasScene({ scale, setup }: { scale: number; setup: (ctx: CanvasRende
       if (still) scene.draw(0);
     };
     const loop = (time: number) => {
+      if (paused()) {
+        frame = requestAnimationFrame(loop);
+        return;
+      }
       scene.draw(time);
       frame = requestAnimationFrame(loop);
     };

@@ -9,7 +9,7 @@ export const packFormats: PackFormat[] = ["modrinth", "curseforge"];
 export const packExtension: Record<PackFormat, string> = { modrinth: "mrpack", curseforge: "zip" };
 
 export type PackProgress =
-  | { stage: "fetch" }
+  | { stage: "fetch"; done: number; total: number }
   | { stage: "files"; done: number; total: number }
   | { stage: "overrides" }
   | { stage: "identify" }
@@ -92,8 +92,10 @@ const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function previewImport(source: ImportSource, onProgress: (p: PackProgress) => void): Promise<ImportResult> {
   if (source.url || source.curseforgeId) {
-    onProgress({ stage: "fetch" });
-    await wait(600);
+    for (let done = 0; done <= 8; done += 2) {
+      onProgress({ stage: "fetch", done: done * 1_000_000, total: 8_000_000 });
+      await wait(150);
+    }
   }
   for (let done = 0; done <= 24; done += 4) {
     onProgress({ stage: "files", done, total: 24 });

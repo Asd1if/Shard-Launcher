@@ -117,7 +117,7 @@ pub fn extract_natives(jars: &[PathBuf], target: &Path) -> Result<()> {
             if dest.metadata().is_ok_and(|m| m.len() == entry.size()) {
                 continue;
             }
-            let mut bytes = Vec::with_capacity(entry.size() as usize);
+            let mut bytes = Vec::with_capacity((entry.size() as usize).min(1 << 24));
             entry.read_to_end(&mut bytes)?;
             std::fs::write(dest, bytes)?;
         }

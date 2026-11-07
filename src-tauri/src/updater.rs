@@ -8,6 +8,7 @@ use std::io::Read;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
+use sha2::Digest;
 use tauri::{AppHandle, State};
 
 use crate::error::{Error, Result};
@@ -33,6 +34,9 @@ struct Asset {
     name: String,
     browser_download_url: String,
     size: u64,
+    /// «sha256:…» — GitHub считает его сам при загрузке файла в релиз
+    #[serde(default)]
+    digest: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -133,6 +137,11 @@ pub async fn update_install(app: AppHandle, state: State<'_, AppState>, progress
     while let Some(chunk) = response.chunk().await? {
         tracker.add(chunk.len() as u64);
         bytes.extend_from_slice(&chunk);
+    }
+    // Ставим только то, что совпало с хэшем из релиза: битую или подменённую загрузку не запускаем
+    let expected = asset.digest.as_deref().and_then(|d| d.strip_prefix("sha256:")).ok_or_else(|| Error::msg("update_bad_hash"))?;
+    if !hex::encode(sha2::Sha256::digest(&bytes)).eq_ignore_ascii_case(expected) {
+        return Err(Error::msg("update_bad_hash"));
     }
 
     if installed() {

@@ -78,8 +78,8 @@ Set `SHARD_PUBLIC_BUILD=1` to build without the CurseForge key even if the file 
 Bump the version in `package.json`, `src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json`, then push a tag:
 
 ```bash
-git tag v0.5.0
-git push origin v0.5.0
+git tag v0.5.1
+git push origin v0.5.1
 ```
 
 GitHub Actions builds the installer and the portable zip and publishes the release.

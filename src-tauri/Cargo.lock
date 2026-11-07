@@ -3676,7 +3676,7 @@ dependencies = [
 
 [[package]]
 name = "shard"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -3690,6 +3690,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha1",
+ "sha2",
  "sysinfo",
  "tauri",
  "tauri-build",

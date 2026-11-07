@@ -78,8 +78,8 @@ npm run tauri dev
 Поднимите версию в `package.json`, `src-tauri/Cargo.toml` и `src-tauri/tauri.conf.json` и отправьте тег:
 
 ```bash
-git tag v0.5.0
-git push origin v0.5.0
+git tag v0.5.1
+git push origin v0.5.1
 ```
 
 GitHub Actions соберёт установщик и портативный zip и опубликует релиз.

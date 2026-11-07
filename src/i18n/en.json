@@ -451,7 +451,8 @@
     "optionsMissing": "This instance has no settings yet — launch the game once",
     "updateGameRunning": "Close the game first",
     "updateNone": "No updates",
-    "updateBadAsset": "The release has no launcher file"
+    "updateBadAsset": "The release has no launcher file",
+    "updateBadHash": "The update file failed the integrity check, try again later"
   },
   "instanceSettings": {
     "general": "General",
