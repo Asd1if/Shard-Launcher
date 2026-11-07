@@ -1,0 +1,44 @@
+name: CI
+
+# Проверка на каждый push и pull request: типы TypeScript, сборка Rust и тесты.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      - name: TypeScript
+        run: npx tsc --noEmit -p .
+
+      - name: Frontend build
+        run: npx vite build
+
+      - name: Rust check and tests
+        working-directory: src-tauri
+        env:
+          SHARD_PUBLIC_BUILD: "1"
+        run: |
+          cargo check --locked
+          cargo test --lib --locked

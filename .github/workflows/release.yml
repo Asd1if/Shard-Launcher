@@ -1,0 +1,58 @@
+name: Release
+
+# Тег вида v0.5.0 собирает установщик и портативную версию для Windows и публикует релиз.
+# Ключ CurseForge в публичную сборку не вшивается: пользователи вводят свой в настройках.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tag matches app version
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          if ("v$version" -ne "${{ github.ref_name }}") {
+            Write-Error "Tag ${{ github.ref_name }} does not match package.json version $version"
+          }
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      - name: Build
+        env:
+          SHARD_PUBLIC_BUILD: "1"
+        run: npx tauri build --bundles nsis
+
+      - name: Collect files
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force out | Out-Null
+          Copy-Item src-tauri/target/release/bundle/nsis/*-setup.exe out/
+          # Портативная версия: данные хранятся в папке data рядом с exe
+          New-Item -ItemType Directory -Force Shard-portable | Out-Null
+          Copy-Item src-tauri/target/release/shard.exe "Shard-portable/Shard Launcher.exe"
+          Set-Content Shard-portable/portable.txt 'Portable mode: Shard Launcher keeps its data in the "data" folder next to the exe. Delete this file to use %APPDATA% instead.'
+          Compress-Archive -Path Shard-portable -DestinationPath out/Shard-portable.zip
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: out/*
+          generate_release_notes: true
