@@ -10,7 +10,7 @@ use tauri::ipc::Channel;
 
 use crate::error::{Error, Result};
 use crate::paths::Paths;
-use crate::progress::{size_of, Progress, Tracker};
+use crate::progress::{Progress, Tracker, size_of};
 use crate::state::AppState;
 
 /// Что делает окно лаунчера, когда игра запустилась.
@@ -37,6 +37,10 @@ pub struct Settings {
     pub on_launch: OnLaunch,
     /// Не показывать в Discord, во что идёт игра
     pub discord_disabled: bool,
+    /// Запускать локальный MCP-сервер, пока открыт Shard
+    pub mcp_enabled: bool,
+    /// MCP-токен из системного хранилища учётных данных
+    pub mcp_token: Option<String>,
     /// Не показывать новости Minecraft на главной
     pub hide_news: bool,
     /// Свой ключ CurseForge API; пусто — вшитый в лаунчер, если он есть
@@ -70,10 +74,41 @@ fn cf_key_read() -> Option<String> {
 
 /// Сохраняет ключ в хранилище. false — хранилище недоступно, ключ остаётся в файле.
 fn cf_key_write(key: Option<&str>) -> bool {
-    let Some(entry) = cf_entry() else { return false };
+    let Some(entry) = cf_entry() else {
+        return false;
+    };
     match key {
         Some(k) => entry.set_password(k).is_ok(),
-        None => matches!(entry.delete_credential(), Ok(()) | Err(keyring::Error::NoEntry)),
+        None => matches!(
+            entry.delete_credential(),
+            Ok(()) | Err(keyring::Error::NoEntry)
+        ),
+    }
+}
+
+fn mcp_key_entry() -> Result<keyring::Entry> {
+    keyring::Entry::new(crate::auth::KEYRING_SERVICE, "mcp-api-token")
+        .map_err(|error| Error::msg(format!("credential store: {error}")))
+}
+
+fn mcp_key_read() -> Option<String> {
+    mcp_key_entry()
+        .ok()?
+        .get_password()
+        .ok()
+        .filter(|token| !token.is_empty())
+}
+
+fn mcp_key_write(token: Option<&str>) -> Result<()> {
+    let entry = mcp_key_entry()?;
+    match token {
+        Some(token) => entry
+            .set_password(token)
+            .map_err(|error| Error::msg(format!("credential store: {error}"))),
+        None => match entry.delete_credential() {
+            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+            Err(error) => Err(Error::msg(format!("credential store: {error}"))),
+        },
     }
 }
 
@@ -82,7 +117,14 @@ fn save_file(paths: &Paths, settings: &Settings) -> Result<()> {
     if cf_key_write(settings.curseforge_key.as_deref()) {
         on_disk.curseforge_key = None;
     }
-    std::fs::write(paths.root.join("settings.json"), serde_json::to_vec_pretty(&on_disk)?)?;
+    if let Some(token) = settings.mcp_token.as_deref() {
+        mcp_key_write(Some(token))?;
+    }
+    on_disk.mcp_token = None;
+    std::fs::write(
+        paths.root.join("settings.json"),
+        serde_json::to_vec_pretty(&on_disk)?,
+    )?;
     Ok(())
 }
 
@@ -94,12 +136,19 @@ pub fn load_full(paths: &Paths) -> Settings {
     } else {
         settings.curseforge_key = cf_key_read();
     }
+    if settings.mcp_token.is_some() {
+        let _ = save_file(paths, &settings);
+    } else {
+        settings.mcp_token = mcp_key_read();
+    }
     settings
 }
 
 /// Память новой сборки: из общих настроек, иначе 4 ГБ с загрузчиком модов и 2 ГБ без.
 pub fn new_instance_memory(paths: &Paths, modded: bool) -> u32 {
-    load(paths).default_memory_mb.unwrap_or(if modded { 4096 } else { 2048 })
+    load(paths)
+        .default_memory_mb
+        .unwrap_or(if modded { 4096 } else { 2048 })
 }
 
 #[tauri::command]
@@ -108,15 +157,41 @@ pub async fn settings_get(state: State<'_, AppState>) -> Result<Settings> {
 }
 
 #[tauri::command]
-pub async fn settings_set(state: State<'_, AppState>, settings: Settings) -> Result<Settings> {
+pub async fn settings_set(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    settings: Settings,
+) -> Result<Settings> {
     let mut settings = settings;
     if settings.default_memory_mb.is_some_and(|m| m < 512) {
         return Err(Error::msg("memory must be at least 512 MB"));
     }
-    settings.default_java_path = settings.default_java_path.map(|p| p.trim().to_owned()).filter(|p| !p.is_empty());
-    settings.curseforge_key = settings.curseforge_key.map(|k| k.trim().to_owned()).filter(|k| !k.is_empty());
+    settings.default_java_path = settings
+        .default_java_path
+        .map(|p| p.trim().to_owned())
+        .filter(|p| !p.is_empty());
+    settings.curseforge_key = settings
+        .curseforge_key
+        .map(|k| k.trim().to_owned())
+        .filter(|k| !k.is_empty());
+    settings.mcp_token = settings
+        .mcp_token
+        .map(|token| token.trim().to_owned())
+        .filter(|token| !token.is_empty());
+
+    let previous = load_full(&state.paths);
+    crate::api::set_enabled(&app, settings.mcp_enabled, settings.mcp_token.as_deref())?;
+    if let Err(error) = save_file(&state.paths, &settings) {
+        if let Err(rollback) =
+            crate::api::set_enabled(&app, previous.mcp_enabled, previous.mcp_token.as_deref())
+        {
+            return Err(Error::msg(format!(
+                "{error}; MCP server rollback failed: {rollback}"
+            )));
+        }
+        return Err(error);
+    }
     crate::content::curseforge::set_user_key(settings.curseforge_key.clone());
-    save_file(&state.paths, &settings)?;
     tauri::async_runtime::spawn(crate::discord::set_disabled(settings.discord_disabled));
     Ok(settings)
 }
@@ -151,7 +226,10 @@ pub fn background_set(state: State<'_, AppState>, path: Option<String>) -> Resul
         return Ok(None);
     };
     let source = PathBuf::from(path);
-    let ext = source.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+    let ext = source
+        .extension()
+        .map(|e| e.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_default();
     if !["png", "jpg", "jpeg", "webp", "gif"].contains(&ext.as_str()) {
         return Err(Error::msg("icon_not_image"));
     }
@@ -170,7 +248,10 @@ pub fn background_set(state: State<'_, AppState>, path: Option<String>) -> Resul
 #[tauri::command]
 pub async fn background_luma(path: String) -> Result<f32> {
     tauri::async_runtime::spawn_blocking(move || {
-        let img = image::open(&path).map_err(|e| Error::msg(e.to_string()))?.thumbnail(64, 64).to_rgba8();
+        let img = image::open(&path)
+            .map_err(|e| Error::msg(e.to_string()))?
+            .thumbnail(64, 64)
+            .to_rgba8();
         let (mut sum, mut weight) = (0f32, 0f32);
         for p in img.pixels() {
             let a = p[3] as f32 / 255.0;
@@ -219,7 +300,9 @@ pub struct DataDir {
 }
 
 fn default_dir(app: &AppHandle) -> Result<PathBuf> {
-    app.path().app_data_dir().map_err(|e| Error::msg(e.to_string()))
+    app.path()
+        .app_data_dir()
+        .map_err(|e| Error::msg(e.to_string()))
 }
 
 #[tauri::command]
@@ -281,7 +364,10 @@ pub async fn settings_move_data(
 /// Переносит всё содержимое папки. Файл с расположением остаётся на месте.
 fn move_contents(from: &Path, to: &Path, progress: Channel<Progress>) -> Result<()> {
     std::fs::create_dir_all(to)?;
-    if std::fs::read_dir(to)?.flatten().any(|e| !is_service(&e.file_name().to_string_lossy())) {
+    if std::fs::read_dir(to)?
+        .flatten()
+        .any(|e| !is_service(&e.file_name().to_string_lossy()))
+    {
         return Err(Error::msg("data_dir_not_empty"));
     }
     let entries: Vec<_> = std::fs::read_dir(from)?
@@ -322,7 +408,11 @@ fn copy_recursive(from: &Path, to: &Path, tracker: &mut Tracker) -> Result<()> {
 }
 
 fn remove_any(path: &Path) -> Result<()> {
-    if path.is_dir() { std::fs::remove_dir_all(path)? } else { std::fs::remove_file(path)? }
+    if path.is_dir() {
+        std::fs::remove_dir_all(path)?
+    } else {
+        std::fs::remove_file(path)?
+    }
     Ok(())
 }
 

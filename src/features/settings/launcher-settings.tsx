@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { ProgressBar, type ByteProgress } from "@/components/ui/progress-bar";
 import { useTranslation } from "react-i18next";
-import { Check, FolderInput, FolderOpen, ImagePlus, Loader2, RotateCcw } from "lucide-react";
+import { Check, Copy, FolderInput, FolderOpen, ImagePlus, Loader2, RotateCcw } from "lucide-react";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,6 +37,11 @@ function Row({ title, hint, children }: { title: string; hint?: string; children
       {children}
     </div>
   );
+}
+
+function generateMcpToken() {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  return btoa(String.fromCharCode(...bytes)).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
 }
 
 /** Фон главного экрана: превью вариантов, затемнение, своя картинка. */
@@ -158,6 +163,60 @@ export function LauncherSettings() {
     }
   };
 
+  const saveMcp = async (enabled: boolean, token: string | null) => {
+    if (!saved) return;
+    const before = saved;
+    const next = { ...saved, mcpEnabled: enabled, mcpToken: token };
+    setSettings((s) => (s ? { ...s, mcpEnabled: enabled, mcpToken: token } : s));
+    setSaved(next);
+    try {
+      const result = await backend.setSettings(next);
+      setSettings(result);
+      setSaved(result);
+    } catch (e) {
+      setSettings(before);
+      setSaved(before);
+      showToast(errorText(e));
+    }
+  };
+
+  const copyMcpConfig = async () => {
+    if (!settings.mcpToken) return;
+    const config = {
+      inputs: [
+        {
+          type: "promptString",
+          id: "shard-mcp-token",
+          description: t("launcher.mcpToken"),
+          password: true,
+        },
+      ],
+      servers: {
+        shard: {
+          type: "http",
+          url: "http://127.0.0.1:8542/mcp",
+          headers: { Authorization: "Bearer ${input:shard-mcp-token}" },
+        },
+      },
+    };
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(config, null, 2));
+      showToast(t("launcher.mcpConfigCopied"));
+    } catch (e) {
+      showToast(errorText(e));
+    }
+  };
+
+  const copyMcpToken = async () => {
+    if (!settings.mcpToken) return;
+    try {
+      await navigator.clipboard.writeText(settings.mcpToken);
+      showToast(t("launcher.mcpTokenCopied"));
+    } catch (e) {
+      showToast(errorText(e));
+    }
+  };
+
   const save = async () => {
     setSaving(true);
     try {
@@ -242,6 +301,51 @@ export function LauncherSettings() {
             className="size-4 shrink-0 accent-[var(--brand)]"
           />
         </label>
+        <div className="flex flex-col gap-3 border-t border-surface-3 py-4">
+          <label className="flex cursor-pointer items-center justify-between gap-6 px-5">
+            <div>
+              <h2 className="text-foreground">{t("launcher.mcp")}</h2>
+              <p className="text-sm text-ink-muted">{t("launcher.mcpHint")}</p>
+            </div>
+            <input
+              type="checkbox"
+              checked={settings.mcpEnabled}
+              onChange={(e) => {
+                const enabled = e.target.checked;
+                void saveMcp(enabled, settings.mcpToken ?? (enabled ? generateMcpToken() : null));
+              }}
+              className="size-4 shrink-0 accent-[var(--brand)]"
+            />
+          </label>
+          {settings.mcpToken && (
+            <div className="flex flex-wrap items-center gap-2 px-5">
+              <Input
+                type="password"
+                readOnly
+                value={settings.mcpToken}
+                aria-label={t("launcher.mcpToken")}
+                className="h-9 min-w-0 flex-1 bg-surface-0 font-mono text-[12px]"
+              />
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => void copyMcpToken()}
+              >
+                <Copy /> {t("launcher.mcpCopyToken")}
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => void copyMcpConfig()}>
+                <Copy /> {t("launcher.mcpCopyConfig")}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => void saveMcp(settings.mcpEnabled, generateMcpToken())}
+              >
+                <RotateCcw /> {t("launcher.mcpRegenerate")}
+              </Button>
+            </div>
+          )}
+        </div>
         <label className="flex cursor-pointer items-center justify-between gap-6 px-5 py-4">
           <div>
             <h2 className="text-foreground">{t("launcher.news")}</h2>
