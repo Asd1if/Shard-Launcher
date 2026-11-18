@@ -125,7 +125,7 @@ export interface DataDir {
 }
 
 export interface AddFilesResult {
-  added: [string, "mod" | "resourcepack" | "shader"][];
+  added: [string, "mod" | "resourcepack" | "shader" | "datapack"][];
   packs: string[];
   skipped: string[];
 }

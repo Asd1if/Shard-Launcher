@@ -1,4 +1,4 @@
-//! Контент сборки: моды, ресурспаки и шейдеры.
+//! Контент сборки: моды, ресурспаки, шейдеры и датапаки.
 //!
 //! Источник правды — файлы в папке игры. Сведения о них (проект, версия, название, иконка)
 //! лежат в `instances/<id>/content.json` по SHA1, так что переименование или отключение
@@ -31,6 +31,8 @@ pub enum ContentKind {
     Mod,
     Resourcepack,
     Shader,
+    /// Датапаки копируются в существующие миры перед запуском
+    Datapack,
 }
 
 impl Meta {
@@ -48,13 +50,14 @@ pub(crate) fn project_key(source: Source, id: &str) -> String {
 }
 
 impl ContentKind {
-    pub(crate) const ALL: [ContentKind; 3] = [ContentKind::Mod, ContentKind::Resourcepack, ContentKind::Shader];
+    pub(crate) const ALL: [ContentKind; 4] = [ContentKind::Mod, ContentKind::Resourcepack, ContentKind::Shader, ContentKind::Datapack];
 
     pub(crate) fn folder(self) -> &'static str {
         match self {
             ContentKind::Mod => "mods",
             ContentKind::Resourcepack => "resourcepacks",
             ContentKind::Shader => "shaderpacks",
+            ContentKind::Datapack => "datapacks",
         }
     }
 
@@ -70,6 +73,7 @@ impl ContentKind {
             ContentKind::Mod => "mod",
             ContentKind::Resourcepack => "resourcepack",
             ContentKind::Shader => "shader",
+            ContentKind::Datapack => "datapack",
         }
     }
 }
@@ -88,6 +92,7 @@ pub(crate) fn modrinth_loaders(kind: ContentKind, loader: Option<ModLoader>) -> 
         ContentKind::Resourcepack => vec!["minecraft"],
         // У шейдеров «загрузчик» — это Iris, OptiFine и т. п.; фильтровать по нему не нужно
         ContentKind::Shader => vec![],
+        ContentKind::Datapack => vec!["datapack"],
     }
 }
 
@@ -334,6 +339,143 @@ pub(crate) fn refresh_mod_count(paths: &Paths, instance: &mut Instance) -> Resul
     let count = scan(&game_dir).iter().filter(|f| f.kind == ContentKind::Mod && !f.file.ends_with(DISABLED)).count();
     instance.mod_count = count as u32;
     instances::save(paths, instance)
+}
+
+const MANAGED_DATAPACKS_FILE: &str = ".shard-datapacks.json";
+
+enum ExistingFile {
+    Missing,
+    Regular(String),
+    Other,
+}
+
+fn inspect_file(path: &Path) -> Result<ExistingFile> {
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_file() => Ok(ExistingFile::Regular(sha1_file(path)?)),
+        Ok(_) => Ok(ExistingFile::Other),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(ExistingFile::Missing),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn managed_datapacks(world: &Path) -> Result<HashMap<String, String>> {
+    let path = world.join(MANAGED_DATAPACKS_FILE);
+    let manifest: HashMap<String, String> = match std::fs::symlink_metadata(&path) {
+        Ok(metadata) if metadata.file_type().is_file() => Ok(serde_json::from_slice(&std::fs::read(path)?)?),
+        Ok(_) => Err(Error::msg("invalid managed datapacks manifest")),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(HashMap::new()),
+        Err(error) => Err(error.into()),
+    }?;
+    for name in manifest.keys() {
+        checked_name(name)?;
+        if std::path::Path::new(name).components().count() != 1
+            || name.ends_with(DISABLED)
+            || !name.to_ascii_lowercase().ends_with(".zip")
+        {
+            return Err(Error::msg("invalid managed datapack filename"));
+        }
+    }
+    Ok(manifest)
+}
+
+/// Устанавливает датапаки сборки в существующие миры, сохраняя пользовательские файлы.
+pub(crate) fn sync_datapacks(game_dir: &Path) -> Result<()> {
+    let source_dir = game_dir.join(ContentKind::Datapack.folder());
+    let mut packs = HashMap::new();
+    match std::fs::read_dir(&source_dir) {
+        Ok(entries) => {
+            for entry in entries {
+                let entry = entry?;
+                if !entry.file_type()?.is_file() {
+                    continue;
+                }
+                let name = entry
+                    .file_name()
+                    .into_string()
+                    .map_err(|_| Error::msg("datapack filename is not valid UTF-8"))?;
+                if name.ends_with(DISABLED) || !name.to_ascii_lowercase().ends_with(".zip") {
+                    continue;
+                }
+                checked_name(&name)?;
+                let path = entry.path();
+                packs.insert(name, (sha1_file(&path)?, path));
+            }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+
+    let saves_dir = game_dir.join("saves");
+    let worlds = match std::fs::read_dir(&saves_dir) {
+        Ok(worlds) => worlds,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+    };
+
+    for entry in worlds {
+        let entry = entry?;
+        if !entry.file_type()?.is_dir() {
+            continue;
+        }
+        let world = entry.path();
+        if !world.join("level.dat").is_file() {
+            continue;
+        }
+
+        let mut previous = managed_datapacks(&world)?;
+        let datapacks_dir = world.join("datapacks");
+        if !packs.is_empty() || !previous.is_empty() {
+            std::fs::create_dir_all(&datapacks_dir)?;
+        }
+
+        let mut managed = HashMap::new();
+        for (name, (source_hash, source_path)) in &packs {
+            let destination = datapacks_dir.join(name);
+            match previous.remove(name) {
+                Some(previous_hash) => {
+                    match inspect_file(&destination)? {
+                        ExistingFile::Regular(hash) if hash != previous_hash => continue,
+                        ExistingFile::Other => continue,
+                        ExistingFile::Missing => {
+                            std::fs::copy(source_path, &destination)?;
+                        }
+                        ExistingFile::Regular(hash) if hash != *source_hash => {
+                            std::fs::copy(source_path, &destination)?;
+                        }
+                        ExistingFile::Regular(_) => {}
+                    }
+                    managed.insert(name.clone(), source_hash.clone());
+                }
+                None => match inspect_file(&destination)? {
+                    ExistingFile::Missing => {
+                        std::fs::copy(source_path, &destination)?;
+                        managed.insert(name.clone(), source_hash.clone());
+                    }
+                    ExistingFile::Regular(_) | ExistingFile::Other => {}
+                },
+            }
+        }
+
+        for (name, previous_hash) in previous {
+            let destination = datapacks_dir.join(name);
+            if matches!(inspect_file(&destination)?, ExistingFile::Regular(hash) if hash == previous_hash) {
+                std::fs::remove_file(destination)?;
+            }
+        }
+
+        let manifest = world.join(MANAGED_DATAPACKS_FILE);
+        if managed.is_empty() {
+            match std::fs::remove_file(manifest) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error.into()),
+            }
+        } else {
+            std::fs::write(manifest, serde_json::to_vec(&managed)?)?;
+        }
+    }
+
+    Ok(())
 }
 
 /// Имя файла из фронтенда: только имя, без путей.
@@ -1048,7 +1190,7 @@ fn classify(path: &Path) -> Dropped {
         // Датапак (только data/) ставится в мир, а не в сборку
         let assets = names.iter().any(|n| n.starts_with("assets/"));
         let data = names.iter().any(|n| n.starts_with("data/"));
-        return if data && !assets { Dropped::Unsupported } else { Dropped::Content(ContentKind::Resourcepack) };
+        return if data && !assets { Dropped::Content(ContentKind::Datapack) } else { Dropped::Content(ContentKind::Resourcepack) };
     }
     // Очень старые моды распространялись zip-архивами
     if has("fabric.mod.json") || has("mcmod.info") || has("META-INF/mods.toml") {
@@ -1064,7 +1206,7 @@ pub struct AddFilesResult {
     pub added: Vec<(String, ContentKind)>,
     /// Архивы модпаков — фронтенд предложит их импортировать
     pub packs: Vec<String>,
-    /// Файлы, которые не моды, не ресурспаки и не шейдеры
+    /// Файлы, которые не относятся к поддерживаемому контенту
     pub skipped: Vec<String>,
 }
 
@@ -1104,6 +1246,116 @@ pub async fn content_add_files(state: State<'_, AppState>, id: String, paths: Ve
         refresh_mod_count(&state.paths, &mut instance)?;
     }
     Ok(result)
+}
+
+#[cfg(test)]
+mod datapack_sync_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static NEXT_TEST_DIR: AtomicUsize = AtomicUsize::new(0);
+
+    fn test_dir() -> PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "shard-datapack-test-{}-{}",
+            std::process::id(),
+            NEXT_TEST_DIR.fetch_add(1, Ordering::Relaxed),
+        ));
+        std::fs::create_dir_all(&path).unwrap();
+        path
+    }
+
+    #[test]
+    fn sync_updates_and_removes_only_managed_datapacks() {
+        let root = test_dir();
+        let game = root.join("minecraft");
+        let source = game.join("datapacks");
+        let world = game.join("saves").join("World");
+        let installed = world.join("datapacks").join("pack.zip");
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::create_dir_all(&world).unwrap();
+        std::fs::write(world.join("level.dat"), []).unwrap();
+        std::fs::write(source.join("pack.zip"), b"version 1").unwrap();
+
+        sync_datapacks(&game).unwrap();
+        assert_eq!(std::fs::read(&installed).unwrap(), b"version 1");
+
+        std::fs::write(source.join("pack.zip"), b"version 2").unwrap();
+        sync_datapacks(&game).unwrap();
+        assert_eq!(std::fs::read(&installed).unwrap(), b"version 2");
+
+        std::fs::remove_file(source.join("pack.zip")).unwrap();
+        sync_datapacks(&game).unwrap();
+        assert!(!installed.exists());
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn sync_preserves_unmanaged_datapacks() {
+        let root = test_dir();
+        let game = root.join("minecraft");
+        let source = game.join("datapacks");
+        let world = game.join("saves").join("World");
+        let installed = world.join("datapacks").join("pack.zip");
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::create_dir_all(installed.parent().unwrap()).unwrap();
+        std::fs::create_dir_all(&world).unwrap();
+        std::fs::write(world.join("level.dat"), []).unwrap();
+        std::fs::write(source.join("pack.zip"), b"launcher pack").unwrap();
+        std::fs::write(&installed, b"user pack").unwrap();
+
+        sync_datapacks(&game).unwrap();
+        assert_eq!(std::fs::read(&installed).unwrap(), b"user pack");
+
+        std::fs::remove_file(source.join("pack.zip")).unwrap();
+        sync_datapacks(&game).unwrap();
+        assert_eq!(std::fs::read(&installed).unwrap(), b"user pack");
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn sync_preserves_user_modified_managed_datapacks() {
+        let root = test_dir();
+        let game = root.join("minecraft");
+        let source = game.join("datapacks");
+        let world = game.join("saves").join("World");
+        let installed = world.join("datapacks").join("pack.zip");
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::create_dir_all(&world).unwrap();
+        std::fs::write(world.join("level.dat"), []).unwrap();
+        std::fs::write(source.join("pack.zip"), b"version 1").unwrap();
+
+        sync_datapacks(&game).unwrap();
+        std::fs::write(&installed, b"user changes").unwrap();
+        std::fs::write(source.join("pack.zip"), b"version 2").unwrap();
+        sync_datapacks(&game).unwrap();
+        assert_eq!(std::fs::read(&installed).unwrap(), b"user changes");
+
+        std::fs::remove_file(source.join("pack.zip")).unwrap();
+        sync_datapacks(&game).unwrap();
+        assert_eq!(std::fs::read(&installed).unwrap(), b"user changes");
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn sync_rejects_unsafe_manifest_filenames() {
+        let root = test_dir();
+        let game = root.join("minecraft");
+        let world = game.join("saves").join("World");
+        std::fs::create_dir_all(&world).unwrap();
+        std::fs::write(world.join("level.dat"), []).unwrap();
+        std::fs::write(
+            world.join(MANAGED_DATAPACKS_FILE),
+            r#"{"../outside.zip":"bad-hash"}"#,
+        )
+        .unwrap();
+
+        assert!(sync_datapacks(&game).is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }
 
 #[cfg(test)]
@@ -1304,7 +1556,7 @@ mod tests {
         let cf = make("cf.zip", &[("manifest.json", r#"{"manifestType":"minecraftModpack"}"#)]);
         let jar = make("m.jar", &[("fabric.mod.json", "{}")]);
         assert_eq!(classify(&rp), Dropped::Content(ContentKind::Resourcepack));
-        assert_eq!(classify(&dp), Dropped::Unsupported);
+        assert_eq!(classify(&dp), Dropped::Content(ContentKind::Datapack));
         assert_eq!(classify(&sh), Dropped::Content(ContentKind::Shader));
         assert_eq!(classify(&cf), Dropped::Pack);
         assert_eq!(classify(&jar), Dropped::Content(ContentKind::Mod));

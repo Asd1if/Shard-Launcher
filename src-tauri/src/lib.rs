@@ -1,4 +1,5 @@
 mod accounts;
+mod api;
 mod auth;
 mod content;
 mod crash;
@@ -62,6 +63,14 @@ pub fn run() {
             content::curseforge::set_user_key(loaded.curseforge_key.clone());
             let discord_disabled = loaded.discord_disabled;
             app.manage(state);
+            if let Some(api_token) = std::env::var("SHARD_API_TOKEN")
+                .ok()
+                .filter(|token| !token.trim().is_empty())
+            {
+                api::start_api_server(app.handle().clone(), api_token);
+            } else {
+                eprintln!("MCP API disabled; set SHARD_API_TOKEN to enable it");
+            }
             server::spawn_supervisor(app.handle().clone());
             updater::cleanup();
             tauri::async_runtime::spawn(discord::set_disabled(discord_disabled));

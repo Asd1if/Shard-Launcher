@@ -208,6 +208,8 @@ async fn start(app: &AppHandle, state: &AppState, id: &str, join: bool) -> Resul
     )
     .await?;
 
+    crate::content::sync_datapacks(&plan.game_dir)?;
+
     let env = hook_env(state, &instance, &plan)?;
     let mut user_env = parse_env(&settings.env);
     user_env.extend(env.iter().cloned());

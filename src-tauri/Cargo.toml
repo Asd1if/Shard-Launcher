@@ -1,6 +1,6 @@
 [package]
 name = "shard"
-version = "0.5.1"
+version = "0.5.2"
 description = "Shard Launcher — Minecraft: Java Edition launcher"
 license = "MIT"
 repository = "https://github.com/Asd1if/Shard-Launcher"
@@ -43,7 +43,7 @@ keyring = { version = "3", features = ["windows-native", "apple-native", "linux-
 tauri-plugin-dialog = "2"
 base64 = "0.22"
 igd-next = { version = "0.16", default-features = false, features = ["aio_tokio"] }
-
+axum = "0.7"
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]

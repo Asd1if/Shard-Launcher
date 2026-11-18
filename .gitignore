@@ -31,3 +31,8 @@ dist-ssr
 
 # Локальные настройки инструментов
 .claude/
+
+# Local secrets
+.env
+.env.*
+!.env.example

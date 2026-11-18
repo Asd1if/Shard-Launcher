@@ -46,6 +46,7 @@ pub(crate) fn class_id(kind: ContentKind) -> u32 {
         ContentKind::Mod => 6,
         ContentKind::Resourcepack => 12,
         ContentKind::Shader => 6552,
+        ContentKind::Datapack => 6945,
     }
 }
 
@@ -374,6 +375,7 @@ pub fn kind_for_class(class_id: Option<u32>) -> ContentKind {
     match class_id {
         Some(12) => ContentKind::Resourcepack,
         Some(6552) => ContentKind::Shader,
+        Some(6945) => ContentKind::Datapack,
         _ => ContentKind::Mod,
     }
 }

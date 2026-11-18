@@ -77,14 +77,16 @@
     "kinds": {
       "mod": "Mods",
       "resourcepack": "Resource packs",
-      "shader": "Shaders"
+      "shader": "Shaders",
+      "datapack": "Data packs"
     },
     "filteredFor": "Showing only what fits {{label}}.",
     "searchLabel": "Search Modrinth",
     "searchPlaceholder": {
       "mod": "Find a mod on {{source}}",
       "resourcepack": "Find a resource pack on {{source}}",
-      "shader": "Find a shader on {{source}}"
+      "shader": "Find a shader on {{source}}",
+      "datapack": "Find a data pack on {{source}}"
     },
     "sortLabel": "Sort",
     "sort": {
@@ -122,7 +124,8 @@
     "empty": {
       "mod": "No mods yet",
       "resourcepack": "No resource packs yet",
-      "shader": "No shaders yet"
+      "shader": "No shaders yet",
+      "datapack": "No data packs yet"
     },
     "emptyText": "Find something on Modrinth or drop files into the instance folder — Shard will recognize them.",
     "needsLoaderText": "Mods and shaders only work in an instance with a mod loader.",
@@ -183,7 +186,8 @@
         "server": "Server only",
         "both": "Client and server"
       }
-    }
+    },
+    "datapacksHint": "Data packs are added to every world of the instance when the game starts. A new world gets them on the next launch."
   },
   "skins": {
     "title": "Skins",

@@ -1,8 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { backend, isTauri } from "@/lib/backend";
 
-export type ContentKind = "mod" | "resourcepack" | "shader";
-export const contentKinds: ContentKind[] = ["mod", "resourcepack", "shader"];
+export type ContentKind = "mod" | "resourcepack" | "shader" | "datapack";
+export const contentKinds: ContentKind[] = ["mod", "resourcepack", "shader", "datapack"];
 
 export type ContentSource = "modrinth" | "curseforge";
 export const contentSources: ContentSource[] = ["modrinth", "curseforge"];
