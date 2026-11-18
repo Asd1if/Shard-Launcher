@@ -2,26 +2,17 @@ mod accounts;
 mod api;
 mod auth;
 mod content;
+mod cpm;
 mod crash;
 mod discord;
 mod download;
 mod error;
-mod cpm;
 mod figura;
-mod tunnel;
-mod import_launchers;
-mod game_options;
-mod snapshots;
-mod news;
-mod updater;
-mod playtime;
-mod server_backup;
-mod server_files;
-mod server_players;
-mod server_store;
-mod icon_shrink;
 mod fix;
 mod game;
+mod game_options;
+mod icon_shrink;
+mod import_launchers;
 mod instances;
 mod launch;
 mod loaders;
@@ -29,13 +20,22 @@ mod mclogs;
 mod modmeta;
 mod modpack;
 mod nbt;
+mod news;
 mod paths;
+mod playtime;
 mod progress;
 mod server;
+mod server_backup;
+mod server_files;
+mod server_players;
+mod server_store;
 mod settings;
 mod share;
 mod skins;
+mod snapshots;
 mod state;
+mod tunnel;
+mod updater;
 mod versions;
 mod worlds;
 
@@ -54,22 +54,22 @@ pub fn run() {
             let root = settings::data_root(&app.path().app_data_dir()?);
             std::fs::create_dir_all(&root)?;
             // Скриншоты и иконки миров показываем прямо с диска через asset-протокол
-            app.asset_protocol_scope().allow_directory(root.join("instances"), true)?;
-            app.asset_protocol_scope().allow_directory(root.join("backgrounds"), false)?;
+            app.asset_protocol_scope()
+                .allow_directory(root.join("instances"), true)?;
+            app.asset_protocol_scope()
+                .allow_directory(root.join("backgrounds"), false)?;
             let state = state::AppState::new(root);
             state.paths.migrate_instance_folders();
             server::migrate(&state.paths);
             let loaded = settings::load_full(&state.paths);
             content::curseforge::set_user_key(loaded.curseforge_key.clone());
             let discord_disabled = loaded.discord_disabled;
+            app.manage(api::ApiRuntime::default());
             app.manage(state);
-            if let Some(api_token) = std::env::var("SHARD_API_TOKEN")
-                .ok()
-                .filter(|token| !token.trim().is_empty())
+            if loaded.mcp_enabled
+                && let Err(error) = api::set_enabled(app.handle(), true, loaded.mcp_token.as_deref())
             {
-                api::start_api_server(app.handle().clone(), api_token);
-            } else {
-                eprintln!("MCP API disabled; set SHARD_API_TOKEN to enable it");
+                eprintln!("Could not start saved MCP API setting: {error}");
             }
             server::spawn_supervisor(app.handle().clone());
             updater::cleanup();

@@ -106,6 +106,8 @@ export interface Settings {
   defaultJvmArgs: string;
   onLaunch: OnLaunch;
   discordDisabled: boolean;
+  mcpEnabled: boolean;
+  mcpToken: string | null;
   hideNews?: boolean;
   /** Свой ключ CurseForge API */
   curseforgeKey: string | null;
@@ -149,6 +151,8 @@ const preview = {
     defaultJvmArgs: "",
     onLaunch: "keep",
     discordDisabled: false,
+    mcpEnabled: false,
+    mcpToken: null,
     curseforgeKey: null,
     // В превью мастер первого запуска открывается по ?onboarding
     onboarded: !location.search.includes("onboarding"),

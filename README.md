@@ -38,6 +38,14 @@ The launcher updates itself when a new release comes out.
 - Microsoft sign-in and offline profiles, skins and capes with a 3D preview
 - Themes (including System and Auto), animated backgrounds or your own image
 - Minecraft news on the home page, Discord status, English and Russian interface
+- Optional local MCP server for listing instances, managing content and launching or stopping the game
+
+## MCP integration
+
+Enable **Settings → MCP server** in Shard, then copy the VS Code configuration from the same
+section into your VS Code MCP settings. VS Code will prompt for the token shown in Shard.
+The server is available only on this computer at `http://127.0.0.1:8542/mcp` while Shard is open.
+Do not share the token; it grants control over local game instances and content.
 
 ## Privacy
 
