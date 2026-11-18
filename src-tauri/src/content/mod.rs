@@ -1556,7 +1556,7 @@ mod tests {
         let cf = make("cf.zip", &[("manifest.json", r#"{"manifestType":"minecraftModpack"}"#)]);
         let jar = make("m.jar", &[("fabric.mod.json", "{}")]);
         assert_eq!(classify(&rp), Dropped::Content(ContentKind::Resourcepack));
-        assert_eq!(classify(&dp), Dropped::Unsupported);
+        assert_eq!(classify(&dp), Dropped::Content(ContentKind::Datapack));
         assert_eq!(classify(&sh), Dropped::Content(ContentKind::Shader));
         assert_eq!(classify(&cf), Dropped::Pack);
         assert_eq!(classify(&jar), Dropped::Content(ContentKind::Mod));
