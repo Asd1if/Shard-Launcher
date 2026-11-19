@@ -2,7 +2,7 @@ use axum::{
     Json, Router,
     extract::State,
     http::{
-        HeaderValue, StatusCode,
+        HeaderValue, StatusCode, Uri,
         header::{AUTHORIZATION, ORIGIN},
     },
     middleware,
@@ -84,6 +84,24 @@ fn as_text(value: impl Serialize) -> Result<String, String> {
 
 fn origin_allowed(origin: Option<&HeaderValue>) -> bool {
     origin.map_or(true, |origin| origin == "http://127.0.0.1:8542")
+}
+
+fn query_token(uri: &Uri) -> Option<&str> {
+    if uri.path() != "/mcp" {
+        return None;
+    }
+
+    let mut tokens = uri.query()?.split('&').filter_map(|part| {
+        let (key, value) = part.split_once('=')?;
+        (key == "token").then_some(value)
+    });
+    let token = tokens.next()?;
+    (!token.is_empty() && tokens.next().is_none()).then_some(token)
+}
+
+fn request_is_authorized(uri: &Uri, bearer_token: Option<&str>, expected_token: &str) -> bool {
+    bearer_token.is_some_and(|provided| provided == expected_token)
+        || query_token(uri).is_some_and(|provided| provided == expected_token)
 }
 
 async fn call_tool(api_state: &ApiState, name: &str, args: Value) -> Result<String, String> {
@@ -244,12 +262,12 @@ async fn auth_middleware(
         .read()
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .clone();
-    let authorized = req
+    let bearer_token = req
         .headers()
         .get(AUTHORIZATION)
         .and_then(|header| header.to_str().ok())
-        .and_then(|header| header.strip_prefix("Bearer "))
-        .is_some_and(|provided| provided == token);
+        .and_then(|header| header.strip_prefix("Bearer "));
+    let authorized = request_is_authorized(req.uri(), bearer_token, &token);
 
     if authorized {
         Ok(next.run(req).await)
@@ -527,5 +545,22 @@ mod tests {
         assert!(!origin_allowed(Some(&HeaderValue::from_static(
             "http://attacker.example"
         ))));
+    }
+
+    #[test]
+    fn query_token_is_only_accepted_for_mcp_endpoint() {
+        let valid: Uri = "/mcp?token=secret".parse().unwrap();
+        let api_route: Uri = "/api/instances?token=secret".parse().unwrap();
+        let duplicate: Uri = "/mcp?token=secret&token=other".parse().unwrap();
+        let empty: Uri = "/mcp?token=".parse().unwrap();
+
+        assert_eq!(query_token(&valid), Some("secret"));
+        assert_eq!(query_token(&api_route), None);
+        assert_eq!(query_token(&duplicate), None);
+        assert_eq!(query_token(&empty), None);
+        assert!(request_is_authorized(&valid, None, "secret"));
+        assert!(!request_is_authorized(&valid, None, "wrong"));
+        assert!(!request_is_authorized(&api_route, None, "secret"));
+        assert!(request_is_authorized(&api_route, Some("secret"), "secret"));
     }
 }

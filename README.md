@@ -42,10 +42,10 @@ The launcher updates itself when a new release comes out.
 
 ## MCP integration
 
-Enable **Settings → MCP server** in Shard, then copy the VS Code configuration from the same
-section into your VS Code MCP settings. VS Code will prompt for the token shown in Shard.
-The server is available only on this computer at `http://127.0.0.1:8542/mcp` while Shard is open.
-Do not share the token; it grants control over local game instances and content.
+Enable **Settings → MCP server** in Shard, copy its link, and add it as a web server in a local
+MCP client such as LLM Studio. The server is available only on this computer while Shard is open.
+The link contains its access token; keep it private. Cloud-hosted connectors cannot access this
+local endpoint.
 
 ## Privacy
 

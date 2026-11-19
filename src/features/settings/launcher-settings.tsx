@@ -180,38 +180,15 @@ export function LauncherSettings() {
     }
   };
 
-  const copyMcpConfig = async () => {
-    if (!settings.mcpToken) return;
-    const config = {
-      inputs: [
-        {
-          type: "promptString",
-          id: "shard-mcp-token",
-          description: t("launcher.mcpToken"),
-          password: true,
-        },
-      ],
-      servers: {
-        shard: {
-          type: "http",
-          url: "http://127.0.0.1:8542/mcp",
-          headers: { Authorization: "Bearer ${input:shard-mcp-token}" },
-        },
-      },
-    };
-    try {
-      await navigator.clipboard.writeText(JSON.stringify(config, null, 2));
-      showToast(t("launcher.mcpConfigCopied"));
-    } catch (e) {
-      showToast(errorText(e));
-    }
-  };
+  const mcpUrl = settings.mcpToken
+    ? `http://127.0.0.1:8542/mcp?token=${settings.mcpToken}`
+    : null;
 
-  const copyMcpToken = async () => {
-    if (!settings.mcpToken) return;
+  const copyMcpUrl = async () => {
+    if (!mcpUrl) return;
     try {
-      await navigator.clipboard.writeText(settings.mcpToken);
-      showToast(t("launcher.mcpTokenCopied"));
+      await navigator.clipboard.writeText(mcpUrl);
+      showToast(t("launcher.mcpUrlCopied"));
     } catch (e) {
       showToast(errorText(e));
     }
@@ -317,24 +294,17 @@ export function LauncherSettings() {
               className="size-4 shrink-0 accent-[var(--brand)]"
             />
           </label>
-          {settings.mcpToken && (
+          {settings.mcpEnabled && mcpUrl && (
             <div className="flex flex-wrap items-center gap-2 px-5">
               <Input
                 type="password"
                 readOnly
-                value={settings.mcpToken}
-                aria-label={t("launcher.mcpToken")}
+                value={mcpUrl}
+                aria-label={t("launcher.mcpUrl")}
                 className="h-9 min-w-0 flex-1 bg-surface-0 font-mono text-[12px]"
               />
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => void copyMcpToken()}
-              >
-                <Copy /> {t("launcher.mcpCopyToken")}
-              </Button>
-              <Button variant="ghost" size="sm" onClick={() => void copyMcpConfig()}>
-                <Copy /> {t("launcher.mcpCopyConfig")}
+              <Button variant="ghost" size="sm" onClick={() => void copyMcpUrl()}>
+                <Copy /> {t("launcher.mcpCopyUrl")}
               </Button>
               <Button
                 variant="ghost"

@@ -1,17 +1,14 @@
-# Shard Launcher MCP integration
+# Shard Launcher MCP
 
-The recommended connection is Shard's built-in local HTTP MCP server:
+Use the built-in HTTP MCP server for local clients:
 
-1. In Shard, open **Settings → MCP server** and enable it.
-2. Use **Copy VS Code config** and add the configuration to your VS Code MCP settings.
-3. When VS Code prompts for the token, use **Copy token** in Shard and paste it into the prompt.
+1. In Shard, enable **Settings → MCP server** and copy the link.
+2. Add a **Web server** connector named `Shard` in a local MCP client such as LLM Studio and paste
+   the link.
 
-The endpoint is `http://127.0.0.1:8542/mcp`. It is reachable only from this computer and only
-while Shard is open. The token grants control over local game instances and content; do not share
-it or commit it to a repository.
+The link is a credential: keep it private. It works only on the same computer while Shard is open.
+Cloud-hosted MCP connectors cannot reach the local endpoint.
 
-The `shard-mcp` Node package remains available as a stdio bridge for MCP clients that do not
-support HTTP MCP. For that legacy setup, build the package with `npm ci` and `npm run build`, then
-configure the client to run `node` with the absolute path to `dist/index.js`. Set
-`SHARD_API_TOKEN` in both the launcher's environment and the bridge's environment. Never commit
-the `.env` file.
+The `shard-mcp` Node package remains as a legacy stdio bridge for clients that need it. Build it
+with `npm ci` and `npm run build`, then configure the client to run `node` with the absolute path
+to `dist/index.js`. The bridge requires `SHARD_API_TOKEN` to match the launcher's token.
