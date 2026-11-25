@@ -1,6 +1,7 @@
 name: Release
 
-# Тег вида v0.5.0 собирает установщик и портативную версию для Windows и публикует релиз.
+# Тег вида v0.5.0 собирает установщик и портативную версию для Windows, AppImage/.deb/.rpm
+# для Linux и публикует всё одним релизом.
 # Ключ CurseForge в публичную сборку не вшивается: пользователи вводят свой в настройках.
 on:
   push:
@@ -51,6 +52,68 @@ jobs:
           Copy-Item src-tauri/target/release/shard.exe "Shard-portable/Shard Launcher.exe"
           Set-Content Shard-portable/portable.txt 'Portable mode: Shard Launcher keeps its data in the "data" folder next to the exe. Delete this file to use %APPDATA% instead.'
           Compress-Archive -Path Shard-portable -DestinationPath out/Shard-portable.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: out/*
+
+  linux:
+    # Самая старая поддерживаемая Ubuntu: AppImage и .deb, собранные на ней, работают и на новых системах
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tag matches app version
+        run: |
+          version=$(node -p "require('./package.json').version")
+          [ "v$version" = "${{ github.ref_name }}" ] || { echo "Tag ${{ github.ref_name }} does not match package.json version $version"; exit 1; }
+
+      - name: Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libssl-dev librsvg2-dev libdbus-1-dev patchelf file
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      - name: Build
+        env:
+          SHARD_PUBLIC_BUILD: "1"
+        run: npx tauri build --bundles deb,rpm,appimage
+
+      - name: Collect files
+        run: |
+          mkdir -p out
+          for f in src-tauri/target/release/bundle/appimage/*.AppImage src-tauri/target/release/bundle/deb/*.deb src-tauri/target/release/bundle/rpm/*.rpm; do
+            name=$(basename "$f")
+            cp "$f" "out/${name// /-}"
+          done
+          ls -l out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: out/*
+
+  publish:
+    needs: [windows, linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
 
       - uses: softprops/action-gh-release@v2
         with:

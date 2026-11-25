@@ -1,14 +1,28 @@
 # Shard Launcher
 
 A free, open-source launcher for **Minecraft: Java Edition**, built with Tauri, Rust and React.
-Windows first; Linux and macOS are planned.
+Runs on Windows and Linux (Arch, Fedora, Ubuntu/Debian, openSUSE and others); macOS is planned.
 
 **English** · [Русский](README.ru.md)
 
 ## Download
 
-Get the latest installer or portable zip from [Releases](https://github.com/Asd1if/Shard-Launcher/releases).
-The launcher updates itself when a new release comes out.
+Everything is on the [Releases](https://github.com/Asd1if/Shard-Launcher/releases) page:
+
+| System | File | Install |
+|---|---|---|
+| Windows | `*-setup.exe` or `Shard-portable.zip` | run the installer / unzip |
+| Any Linux | `Shard-Launcher_*_amd64.AppImage` | `chmod +x Shard-Launcher_*.AppImage` and run it |
+| Arch, Manjaro, EndeavourOS | [PKGBUILD](packaging/aur) or the AppImage | `makepkg -si` in `packaging/aur` |
+| Fedora, openSUSE, RHEL | `Shard-Launcher-*.x86_64.rpm` | `sudo dnf install ./Shard-Launcher-*.rpm` |
+| Ubuntu, Debian, Mint | `Shard-Launcher_*_amd64.deb` | `sudo apt install ./Shard-Launcher_*.deb` |
+
+The Windows installer, the portable zip and the AppImage update themselves. deb, rpm and AUR
+packages are updated by your package manager; the launcher tells you about a new version and
+links to the release.
+
+On Linux, Microsoft sign-in is kept in the Secret Service (GNOME Keyring, KWallet, KeePassXC).
+Without one, sign-in lasts until reboot.
 
 ## Features
 
@@ -38,14 +52,22 @@ The launcher updates itself when a new release comes out.
 - Microsoft sign-in and offline profiles, skins and capes with a 3D preview
 - Themes (including System and Auto), animated backgrounds or your own image
 - Minecraft news on the home page, Discord status, English and Russian interface
-- Optional local MCP server for listing instances, managing content and launching or stopping the game
+- Built-in MCP server: AI assistants can list instances, manage mods and launch the game
 
-## MCP integration
+## MCP server
 
-Enable **Settings → MCP server** in Shard, copy its link, and add it as a web server in a local
-MCP client such as LLM Studio. The server is available only on this computer while Shard is open.
-The link contains its access token; keep it private. Cloud-hosted connectors cannot access this
-local endpoint.
+Shard is a regular [MCP](https://modelcontextprotocol.io) server (Streamable HTTP), so any MCP
+client works: Claude Desktop and Claude Code, Cursor, VS Code, LM Studio, Jan and others.
+
+1. Enable **Settings → MCP server**.
+2. Pick a format and press **Copy**:
+   - **HTTP (JSON)** for clients with remote servers: `{"mcpServers": {"shard": {"type": "http", "url": "…"}}}`;
+   - **Claude Code**: `claude mcp add --transport http shard "…"`;
+   - **stdio** for clients that only run local commands, via `npx mcp-remote` or the
+     dependency-free [`shard-mcp`](shard-mcp) bridge.
+
+The server listens on `127.0.0.1:8542` only and runs while Shard is open. The link contains its
+access token; keep it private. Cloud-hosted connectors cannot reach the local endpoint.
 
 ## Privacy
 
@@ -62,6 +84,7 @@ Modrinth works without a key.
 ## Building from source
 
 Requirements: Node.js 20+, Rust (stable) and the [Tauri prerequisites](https://tauri.app/start/prerequisites/).
+On Linux, `./build.sh --deps` installs them (Arch, Fedora, openSUSE, Ubuntu/Debian).
 
 ```bash
 npm install
@@ -69,6 +92,7 @@ npm run tauri dev
 ```
 
 On Windows, `start.bat` runs the launcher in development mode and `build.bat` builds the installer and a portable zip into `release/`.
+On Linux, `./build.sh` builds an AppImage, .deb and .rpm into `release/` (`./build.sh appimage` for just the AppImage).
 
 Optional build-time files in `src-tauri/` (or environment variables):
 
@@ -90,7 +114,7 @@ git tag v0.5.1
 git push origin v0.5.1
 ```
 
-GitHub Actions builds the installer and the portable zip and publishes the release.
+GitHub Actions builds the Windows installer and portable zip, the Linux AppImage, .deb and .rpm, and publishes the release.
 
 ## License
 

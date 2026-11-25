@@ -1,6 +1,6 @@
 [package]
 name = "shard"
-version = "0.5.4"
+version = "0.6.0"
 description = "Shard Launcher — Minecraft: Java Edition launcher"
 license = "MIT"
 repository = "https://github.com/Asd1if/Shard-Launcher"
@@ -39,11 +39,15 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 sysinfo = { version = "0.30", default-features = false }
-keyring = { version = "3", features = ["windows-native", "apple-native", "linux-native"] }
+keyring = { version = "3", features = ["windows-native", "apple-native"] }
 tauri-plugin-dialog = "2"
 base64 = "0.22"
 igd-next = { version = "0.16", default-features = false, features = ["aio_tokio"] }
 axum = "0.7"
+
+# Linux: keyutils как кеш + Secret Service (GNOME Keyring, KWallet), чтобы вход переживал перезагрузку
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3", features = ["linux-native-sync-persistent", "crypto-rust"] }
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]

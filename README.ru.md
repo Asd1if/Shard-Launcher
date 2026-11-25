@@ -1,14 +1,27 @@
 # Shard Launcher
 
 Бесплатный лаунчер с открытым кодом для **Minecraft: Java Edition** на Tauri, Rust и React.
-Сначала Windows, Linux и macOS — в планах.
+Работает на Windows и Linux (Arch, Fedora, Ubuntu/Debian, openSUSE и другие); macOS — в планах.
 
 [English](README.md) · **Русский**
 
 ## Скачать
 
-Установщик и портативная версия — в [Releases](https://github.com/Asd1if/Shard-Launcher/releases).
-Лаунчер сам обновляется, когда выходит новая версия.
+Всё лежит в [Releases](https://github.com/Asd1if/Shard-Launcher/releases):
+
+| Система | Файл | Установка |
+|---|---|---|
+| Windows | `*-setup.exe` или `Shard-portable.zip` | запустить установщик / распаковать |
+| Любой Linux | `Shard-Launcher_*_amd64.AppImage` | `chmod +x Shard-Launcher_*.AppImage` и запустить |
+| Arch, Manjaro, EndeavourOS | [PKGBUILD](packaging/aur) или AppImage | `makepkg -si` в `packaging/aur` |
+| Fedora, openSUSE, RHEL | `Shard-Launcher-*.x86_64.rpm` | `sudo dnf install ./Shard-Launcher-*.rpm` |
+| Ubuntu, Debian, Mint | `Shard-Launcher_*_amd64.deb` | `sudo apt install ./Shard-Launcher_*.deb` |
+
+Установщик Windows, портативная версия и AppImage обновляются сами. Пакеты deb, rpm и AUR
+обновляет пакетный менеджер — лаунчер сообщит о новой версии и даст ссылку на релиз.
+
+На Linux вход через Microsoft сохраняется в Secret Service (GNOME Keyring, KWallet, KeePassXC).
+Без него вход работает до перезагрузки.
 
 ## Возможности
 
@@ -38,6 +51,22 @@
 - Вход через Microsoft и офлайн-профили, скины и плащи с 3D-превью
 - Темы, включая «Системную» и «Авто», анимированные фоны или своя картинка
 - Новости Minecraft на главной, статус в Discord, русский и английский интерфейс
+- Встроенный MCP-сервер: ИИ-ассистенты могут смотреть сборки, ставить моды и запускать игру
+
+## MCP-сервер
+
+Shard умеет работать как [MCP](https://modelcontextprotocol.io)-сервер (Streamable HTTP), поэтому
+подходит любой MCP-клиент: Claude Desktop и Claude Code, Cursor, VS Code, LM Studio, Jan и другие.
+
+1. Включите **Настройки → MCP-сервер**.
+2. Выберите формат и нажмите «Скопировать»:
+   - **HTTP (JSON)** — для клиентов с удалёнными серверами: `{"mcpServers": {"shard": {"type": "http", "url": "…"}}}`;
+   - **Claude Code** — `claude mcp add --transport http shard "…"`;
+   - **stdio** — для клиентов, которые запускают только локальные команды, через `npx mcp-remote`
+     или мост без зависимостей [`shard-mcp`](shard-mcp).
+
+Сервер слушает только `127.0.0.1:8542` и работает, пока открыт Shard. В ссылке — токен доступа,
+не показывайте её никому. Облачные коннекторы до локального адреса не достучатся.
 
 ## Приватность
 
@@ -54,6 +83,7 @@ Modrinth работает без ключа.
 ## Сборка из исходников
 
 Нужны Node.js 20+, Rust (stable) и [зависимости Tauri](https://tauri.app/start/prerequisites/).
+На Linux их поставит `./build.sh --deps` (Arch, Fedora, openSUSE, Ubuntu/Debian).
 
 ```bash
 npm install
@@ -61,6 +91,7 @@ npm run tauri dev
 ```
 
 На Windows `start.bat` запускает лаунчер в режиме разработки, а `build.bat` собирает установщик и портативный zip в `release/`.
+На Linux `./build.sh` собирает AppImage, .deb и .rpm в `release/` (`./build.sh appimage` — только AppImage).
 
 Необязательные файлы в `src-tauri/` (или переменные окружения):
 
@@ -82,7 +113,7 @@ git tag v0.5.1
 git push origin v0.5.1
 ```
 
-GitHub Actions соберёт установщик и портативный zip и опубликует релиз.
+GitHub Actions соберёт установщик и портативный zip для Windows, AppImage, .deb и .rpm для Linux и опубликует релиз.
 
 ## Лицензия
 

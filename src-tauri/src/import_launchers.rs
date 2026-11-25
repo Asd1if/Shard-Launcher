@@ -204,31 +204,64 @@ fn scan_dir(dir: &Path) -> Vec<Found> {
     subdirs(&inner).iter().filter_map(|d| mmc_instance(d, "prism").or_else(|| curseforge_instance(d)).or_else(|| modrinth_instance(d))).collect()
 }
 
+/// Где другие лаунчеры держат данные на этой системе. Несуществующие папки отсеются при обходе.
+#[derive(Default)]
+struct LauncherRoots {
+    prism: Vec<PathBuf>,
+    multimc: Vec<PathBuf>,
+    modrinth: Vec<PathBuf>,
+    /// Папки, где лежат сами экземпляры CurseForge
+    curseforge: Vec<PathBuf>,
+    minecraft: Vec<PathBuf>,
+}
+
+fn launcher_roots() -> LauncherRoots {
+    let home = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")).map(PathBuf::from);
+    let mut r = LauncherRoots::default();
+    if cfg!(windows) {
+        if let Some(a) = std::env::var_os("APPDATA").map(PathBuf::from) {
+            r.prism.push(a.join("PrismLauncher"));
+            r.multimc.push(a.join("MultiMC"));
+            r.modrinth.extend([a.join("com.modrinth.theseus"), a.join("ModrinthApp")]);
+            r.minecraft.push(a.join(".minecraft"));
+        }
+        if let Some(h) = &home {
+            r.curseforge.push(h.join("curseforge").join("minecraft").join("Instances"));
+        }
+    } else if let Some(h) = &home {
+        let data = std::env::var_os("XDG_DATA_HOME").map(PathBuf::from).filter(|p| p.is_absolute()).unwrap_or_else(|| h.join(".local/share"));
+        // Обычная установка и Flatpak (данные внутри ~/.var/app/<id>/data)
+        let flatpak = |id: &str| h.join(".var/app").join(id).join("data");
+        r.prism.extend([data.join("PrismLauncher"), flatpak("org.prismlauncher.PrismLauncher").join("PrismLauncher")]);
+        r.multimc.extend([data.join("multimc"), h.join("MultiMC")]);
+        r.modrinth.extend([data.join("com.modrinth.theseus"), data.join("ModrinthApp"), flatpak("com.modrinth.ModrinthApp").join("ModrinthApp")]);
+        r.minecraft.extend([h.join(".minecraft"), h.join(".var/app/com.mojang.Minecraft/.minecraft")]);
+    }
+    r
+}
+
 #[tauri::command]
 pub async fn launcher_scan(path: Option<String>) -> Result<Vec<Found>> {
     tokio::task::spawn_blocking(move || {
         if let Some(p) = path {
             return scan_dir(Path::new(&p));
         }
-        let appdata = std::env::var_os("APPDATA").map(PathBuf::from);
-        let home = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")).map(PathBuf::from);
         let mut out = vec![];
-        if let Some(a) = &appdata {
-            for d in subdirs(&a.join("PrismLauncher").join("instances")) {
-                out.extend(mmc_instance(&d, "prism"));
-            }
-            for d in subdirs(&a.join("MultiMC").join("instances")) {
-                out.extend(mmc_instance(&d, "multimc"));
-            }
-            for d in subdirs(&a.join("com.modrinth.theseus").join("profiles")).into_iter().chain(subdirs(&a.join("ModrinthApp").join("profiles"))) {
-                out.extend(modrinth_instance(&d));
-            }
-            out.extend(dot_minecraft(&a.join(".minecraft")));
+        let roots = launcher_roots();
+        for d in roots.prism.iter().flat_map(|r| subdirs(&r.join("instances"))) {
+            out.extend(mmc_instance(&d, "prism"));
         }
-        if let Some(h) = &home {
-            for d in subdirs(&h.join("curseforge").join("minecraft").join("Instances")) {
-                out.extend(curseforge_instance(&d));
-            }
+        for d in roots.multimc.iter().flat_map(|r| subdirs(&r.join("instances"))) {
+            out.extend(mmc_instance(&d, "multimc"));
+        }
+        for d in roots.modrinth.iter().flat_map(|r| subdirs(&r.join("profiles"))) {
+            out.extend(modrinth_instance(&d));
+        }
+        for d in roots.curseforge.iter().flat_map(|r| subdirs(r)) {
+            out.extend(curseforge_instance(&d));
+        }
+        for dot in &roots.minecraft {
+            out.extend(dot_minecraft(dot));
         }
         out
     })

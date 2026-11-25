@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
-import { ArrowUpCircle, Loader2, RefreshCw } from "lucide-react";
+import { ArrowUpCircle, ExternalLink, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { showToast } from "@/components/toast";
@@ -19,6 +20,8 @@ export interface UpdateInfo {
   notes: string;
   url: string;
   size: number;
+  /** false — лаунчер стоит пакетом (deb, rpm, AUR): обновляет пакетный менеджер */
+  selfUpdate: boolean;
 }
 
 const store = createStore<{ info: UpdateInfo | null; checking: boolean; open: boolean }>({ info: null, checking: false, open: false });
@@ -104,7 +107,9 @@ function UpdateDialog({ info, onClose }: { info: UpdateInfo; onClose: () => void
         <DialogHeader>
           <DialogTitle className="font-display text-lg font-medium">{t("updater.title", { version: info.version })}</DialogTitle>
           <DialogDescription>
-            {t("updater.text", { current: info.current })} · {formatSize(info.size, i18n.language)}
+            {t("updater.text", { current: info.current })}
+            {info.size > 0 && <> · {formatSize(info.size, i18n.language)}</>}
+            {!info.selfUpdate && <span className="mt-1 block">{t("updater.packageHint")}</span>}
           </DialogDescription>
         </DialogHeader>
         {notes && (
@@ -118,9 +123,15 @@ function UpdateDialog({ info, onClose }: { info: UpdateInfo; onClose: () => void
           <Button variant="ghost" disabled={busy} onClick={onClose}>
             {t("updater.later")}
           </Button>
-          <Button disabled={busy} onClick={() => void install()}>
-            {busy ? <Loader2 className="animate-spin" /> : <ArrowUpCircle />} {busy ? t("updater.installing") : t("updater.install")}
-          </Button>
+          {info.selfUpdate ? (
+            <Button disabled={busy} onClick={() => void install()}>
+              {busy ? <Loader2 className="animate-spin" /> : <ArrowUpCircle />} {busy ? t("updater.installing") : t("updater.install")}
+            </Button>
+          ) : (
+            <Button onClick={() => void openUrl(info.url).catch((e) => showToast(errorText(e)))}>
+              <ExternalLink /> {t("updater.openRelease")}
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

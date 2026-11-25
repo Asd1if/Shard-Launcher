@@ -1,0 +1,26 @@
+# Maintainer: Asd1if
+# Бинарный пакет для AUR: берёт .deb из релиза GitHub.
+# Обновление версии: поменяйте pkgver, затем `updpkgsums && makepkg --printsrcinfo > .SRCINFO`.
+pkgname=shard-launcher-bin
+pkgver=0.6.0
+pkgrel=1
+pkgdesc="Free, open-source launcher for Minecraft: Java Edition (Tauri, Rust, React)"
+arch=('x86_64')
+url="https://github.com/Asd1if/Shard-Launcher"
+license=('MIT')
+depends=('webkit2gtk-4.1' 'gtk3' 'cairo' 'gdk-pixbuf2' 'glib2' 'libsoup3' 'openssl' 'dbus' 'hicolor-icon-theme')
+optdepends=(
+  'gnome-keyring: keep Microsoft sign-in across reboots (or KWallet / KeePassXC with Secret Service)'
+  'java-runtime: use a system Java instead of the one the launcher downloads'
+)
+provides=('shard-launcher')
+conflicts=('shard-launcher')
+source=("LICENSE-${pkgver}::https://raw.githubusercontent.com/Asd1if/Shard-Launcher/v${pkgver}/LICENSE")
+source_x86_64=("Shard-Launcher_${pkgver}_amd64.deb::${url}/releases/download/v${pkgver}/Shard-Launcher_${pkgver}_amd64.deb")
+sha256sums=('SKIP')
+sha256sums_x86_64=('SKIP')
+
+package() {
+  bsdtar -xf data.tar.gz -C "$pkgdir"
+  install -Dm644 "LICENSE-${pkgver}" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

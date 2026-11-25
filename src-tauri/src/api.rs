@@ -7,9 +7,9 @@ use axum::{
     },
     middleware,
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::post,
 };
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde::Deserialize;
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex, RwLock};
 use tauri::{AppHandle, Manager};
@@ -28,18 +28,6 @@ pub struct ApiState {
 }
 
 #[derive(Deserialize)]
-pub struct InstanceRequest {
-    pub instance_id: String,
-}
-
-#[derive(Serialize)]
-pub struct ApiResponse {
-    pub success: bool,
-    pub message: String,
-    pub data: Option<Value>,
-}
-
-#[derive(Deserialize)]
 struct RpcRequest {
     jsonrpc: String,
     #[serde(default)]
@@ -49,41 +37,15 @@ struct RpcRequest {
     params: Value,
 }
 
-fn required_string(args: &Value, name: &str) -> Result<String, String> {
-    args.get(name)
-        .and_then(Value::as_str)
-        .filter(|value| !value.trim().is_empty())
-        .map(str::to_owned)
-        .ok_or_else(|| format!("Missing or invalid {name}"))
-}
+pub const PORT: u16 = 8542;
 
-fn optional_string(args: &Value, name: &str) -> Result<Option<String>, String> {
-    args.get(name)
-        .filter(|value| !value.is_null())
-        .map(|value| {
-            value
-                .as_str()
-                .map(str::to_owned)
-                .ok_or_else(|| format!("Invalid {name}: expected a string"))
-        })
-        .transpose()
-}
-
-fn optional_value<T: DeserializeOwned>(args: &Value, name: &str) -> Result<Option<T>, String> {
-    args.get(name)
-        .filter(|value| !value.is_null())
-        .cloned()
-        .map(serde_json::from_value)
-        .transpose()
-        .map_err(|error| format!("Invalid {name}: {error}"))
-}
-
-fn as_text(value: impl Serialize) -> Result<String, String> {
-    serde_json::to_string_pretty(&value).map_err(|error| error.to_string())
-}
-
+/// Браузерные запросы с чужих сайтов (DNS rebinding) отсекаем по Origin; обычные MCP-клиенты
+/// его не шлют.
 fn origin_allowed(origin: Option<&HeaderValue>) -> bool {
-    origin.map_or(true, |origin| origin == "http://127.0.0.1:8542")
+    origin.map_or(true, |origin| {
+        let origin = origin.to_str().unwrap_or_default();
+        ["http://127.0.0.1", "http://localhost", "http://[::1]"].iter().any(|host| origin == format!("{host}:{PORT}"))
+    })
 }
 
 fn query_token(uri: &Uri) -> Option<&str> {
@@ -102,150 +64,6 @@ fn query_token(uri: &Uri) -> Option<&str> {
 fn request_is_authorized(uri: &Uri, bearer_token: Option<&str>, expected_token: &str) -> bool {
     bearer_token.is_some_and(|provided| provided == expected_token)
         || query_token(uri).is_some_and(|provided| provided == expected_token)
-}
-
-async fn call_tool(api_state: &ApiState, name: &str, args: Value) -> Result<String, String> {
-    use crate::content::{self, ContentKind, SearchArgs, Source};
-    use crate::state::AppState;
-
-    match name {
-        "get_instances" => {
-            let state = api_state.app_handle.state::<AppState>();
-            as_text(crate::instances::instances_list(state).map_err(|error| error.to_string())?)
-        }
-        "get_instance_details" => {
-            let id = required_string(&args, "instance_id")?;
-            let state = api_state.app_handle.state::<AppState>();
-            as_text(crate::instances::load(&state.paths, &id).map_err(|error| error.to_string())?)
-        }
-        "get_running_instances" => {
-            let state = api_state.app_handle.state::<AppState>();
-            as_text(
-                crate::launch::running_instances(state)
-                    .await
-                    .map_err(|error| error.to_string())?,
-            )
-        }
-        "get_instance_content" => {
-            let id = required_string(&args, "instance_id")?;
-            let state = api_state.app_handle.state::<AppState>();
-            as_text(
-                content::content_list(state, id, Some(false))
-                    .await
-                    .map_err(|error| error.to_string())?,
-            )
-        }
-        "get_instance_worlds" => {
-            let id = required_string(&args, "instance_id")?;
-            let state = api_state.app_handle.state::<AppState>();
-            as_text(
-                crate::worlds::worlds_list(state, id)
-                    .await
-                    .map_err(|error| error.to_string())?,
-            )
-        }
-        "get_content_updates" => {
-            let id = required_string(&args, "instance_id")?;
-            let state = api_state.app_handle.state::<AppState>();
-            as_text(
-                content::content_updates(state, id)
-                    .await
-                    .map_err(|error| error.to_string())?,
-            )
-        }
-        "launch_instance" | "stop_instance" => {
-            let id = required_string(&args, "instance_id")?;
-            let state = api_state.app_handle.state::<AppState>();
-            if name == "launch_instance" {
-                crate::launch::launch_instance(
-                    api_state.app_handle.clone(),
-                    state,
-                    id.clone(),
-                    None,
-                )
-                .await
-                .map_err(|error| error.to_string())?;
-                Ok(format!("Launch started for instance {id}"))
-            } else {
-                crate::launch::stop_instance(state, id.clone())
-                    .await
-                    .map_err(|error| error.to_string())?;
-                Ok(format!("Stop requested for instance {id}"))
-            }
-        }
-        "search_content" => {
-            let kind: ContentKind = optional_value(&args, "kind")?
-                .ok_or_else(|| "Missing or invalid kind".to_owned())?;
-            let search = SearchArgs {
-                query: optional_string(&args, "query")?.unwrap_or_default(),
-                kind,
-                instance_id: optional_value(&args, "instance_id")?,
-                sort: optional_string(&args, "sort")?.unwrap_or_else(|| "relevance".to_owned()),
-                offset: optional_value(&args, "offset")?.unwrap_or(0),
-                source: optional_value::<Source>(&args, "source")?.unwrap_or_default(),
-                any_version: optional_value(&args, "any_version")?.unwrap_or(false),
-                categories: optional_value(&args, "categories")?.unwrap_or_default(),
-                game_version: optional_value(&args, "game_version")?,
-                loaders: optional_value(&args, "loaders")?.unwrap_or_default(),
-                environment: optional_value(&args, "environment")?,
-            };
-            let state = api_state.app_handle.state::<AppState>();
-            as_text(
-                content::content_search(state, search)
-                    .await
-                    .map_err(|error| error.to_string())?,
-            )
-        }
-        "install_content" => {
-            let id = required_string(&args, "instance_id")?;
-            let project_id = required_string(&args, "project_id")?;
-            let kind: ContentKind = optional_value(&args, "kind")?
-                .ok_or_else(|| "Missing or invalid kind".to_owned())?;
-            let source = optional_value(&args, "source")?;
-            let any_version = args.get("any_version").and_then(Value::as_bool);
-            let game_version = optional_value(&args, "game_version")?;
-            let state = api_state.app_handle.state::<AppState>();
-            as_text(
-                content::content_install(
-                    state,
-                    id,
-                    project_id,
-                    kind,
-                    source,
-                    any_version,
-                    game_version,
-                )
-                .await
-                .map_err(|error| error.to_string())?,
-            )
-        }
-        "toggle_content" => {
-            let id = required_string(&args, "instance_id")?;
-            let kind: ContentKind = optional_value(&args, "kind")?
-                .ok_or_else(|| "Missing or invalid kind".to_owned())?;
-            let file = required_string(&args, "file")?;
-            let enabled = args
-                .get("enabled")
-                .and_then(Value::as_bool)
-                .ok_or_else(|| "Missing or invalid enabled".to_owned())?;
-            let state = api_state.app_handle.state::<AppState>();
-            as_text(
-                content::content_toggle(state, id, kind, file, enabled)
-                    .map_err(|error| error.to_string())?,
-            )
-        }
-        "remove_content" => {
-            let id = required_string(&args, "instance_id")?;
-            let kind: ContentKind = optional_value(&args, "kind")?
-                .ok_or_else(|| "Missing or invalid kind".to_owned())?;
-            let file = required_string(&args, "file")?;
-            let state = api_state.app_handle.state::<AppState>();
-            let message = format!("Removed {file} from instance {id}");
-            content::content_remove(state, id, kind, file).map_err(|error| error.to_string())?;
-            Ok(message)
-        }
-        _ => Err("Unknown tool".to_owned()),
-    }
 }
 
 async fn auth_middleware(
@@ -276,167 +94,82 @@ async fn auth_middleware(
     }
 }
 
-async fn get_instances(State(api_state): State<ApiState>) -> Result<Json<ApiResponse>, StatusCode> {
-    let app_state = api_state.app_handle.state::<crate::state::AppState>();
-    let instances = crate::instances::instances_list(app_state).map_err(|error| {
-        eprintln!("MCP API failed to list instances: {error}");
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
-    let data = serde_json::to_value(instances).map_err(|error| {
-        eprintln!("MCP API failed to serialize instances: {error}");
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+/// Версии протокола MCP, которые понимает сервер; первая — самая новая.
+const PROTOCOL_VERSIONS: [&str; 4] = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 
-    Ok(Json(ApiResponse {
-        success: true,
-        message: "Instances retrieved".into(),
-        data: Some(data),
-    }))
+/// Клиенту отвечаем его же версией, если знаем её, иначе — своей самой новой (так велит спецификация).
+fn negotiate_version(requested: Option<&str>) -> &'static str {
+    requested.and_then(|v| PROTOCOL_VERSIONS.iter().find(|&&known| known == v).copied()).unwrap_or(PROTOCOL_VERSIONS[0])
 }
 
-async fn launch_instance(
-    State(api_state): State<ApiState>,
-    Json(req): Json<InstanceRequest>,
-) -> (StatusCode, Json<ApiResponse>) {
-    let result = crate::launch::launch_instance(
-        api_state.app_handle.clone(),
-        api_state.app_handle.state::<crate::state::AppState>(),
-        req.instance_id.clone(),
-        None,
-    )
-    .await;
+const INSTRUCTIONS: &str = "Shard Launcher manages Minecraft: Java Edition instances on this computer. \
+Answers are short plain-text lines with fields separated by ' | '. Instances can be referred to by ID or name. \
+launch_instance without arguments starts the most recently played instance. \
+To install a modpack: search_modpacks -> optionally list_modpack_versions -> install_modpack -> poll get_task. \
+To add a mod: search_content (with instance) -> install_content. Launching opens the game on the user's screen.";
 
-    match result {
-        Ok(()) => (
-            StatusCode::ACCEPTED,
-            Json(ApiResponse {
-                success: true,
-                message: format!("Instance '{}' launch initiated", req.instance_id),
-                data: None,
-            }),
-        ),
-        Err(error) => {
-            eprintln!("MCP API failed to launch instance: {error}");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiResponse {
-                    success: false,
-                    message: error.to_string(),
-                    data: None,
-                }),
-            )
-        }
-    }
+fn rpc_result(id: Value, result: Value) -> Value {
+    json!({ "jsonrpc": "2.0", "id": id, "result": result })
 }
 
-async fn stop_instance(
-    State(api_state): State<ApiState>,
-    Json(req): Json<InstanceRequest>,
-) -> (StatusCode, Json<ApiResponse>) {
-    let result = crate::launch::stop_instance(
-        api_state.app_handle.state::<crate::state::AppState>(),
-        req.instance_id,
-    )
-    .await;
-
-    match result {
-        Ok(()) => (
-            StatusCode::OK,
-            Json(ApiResponse {
-                success: true,
-                message: "Instance stopped".into(),
-                data: None,
-            }),
-        ),
-        Err(error) => {
-            eprintln!("MCP API failed to stop instance: {error}");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiResponse {
-                    success: false,
-                    message: error.to_string(),
-                    data: None,
-                }),
-            )
-        }
-    }
-}
-
-fn rpc_result(id: Value, result: Value) -> Response {
-    Json(json!({ "jsonrpc": "2.0", "id": id, "result": result })).into_response()
-}
-
-fn rpc_error(id: Option<Value>, code: i32, message: &str) -> Response {
-    Json(json!({
+fn rpc_error(id: Option<Value>, code: i32, message: &str) -> Value {
+    json!({
         "jsonrpc": "2.0",
         "id": id,
         "error": { "code": code, "message": message }
-    }))
-    .into_response()
+    })
 }
 
-async fn mcp_endpoint(
-    State(api_state): State<ApiState>,
-    Json(request): Json<RpcRequest>,
-) -> Response {
-    if request.jsonrpc != "2.0" {
-        return rpc_error(request.id, -32600, "Invalid JSON-RPC version");
-    }
+fn tools() -> Value {
+    let list: Vec<Value> = crate::mcp_tools::definitions()
+        .into_iter()
+        .map(|mut tool| {
+            tool["annotations"] = crate::mcp_tools::annotations(tool["name"].as_str().unwrap_or_default());
+            tool
+        })
+        .collect();
+    json!({ "tools": list })
+}
 
-    let Some(id) = request.id.clone() else {
-        return StatusCode::ACCEPTED.into_response();
+/// Один JSON-RPC запрос. None — это уведомление, на него не отвечают.
+async fn handle_rpc(api_state: &ApiState, message: Value) -> Option<Value> {
+    let request: RpcRequest = match serde_json::from_value(message) {
+        Ok(request) => request,
+        Err(_) => return Some(rpc_error(None, -32600, "Invalid request")),
     };
+    if request.jsonrpc != "2.0" {
+        return Some(rpc_error(request.id, -32600, "Invalid JSON-RPC version"));
+    }
+    // Уведомления (notifications/initialized, notifications/cancelled …) без id
+    let id = request.id?;
 
-    match request.method.as_str() {
+    Some(match request.method.as_str() {
         "initialize" => {
-            let version = request
-                .params
-                .get("protocolVersion")
-                .and_then(Value::as_str)
-                .unwrap_or("2025-03-26");
+            let requested = request.params.get("protocolVersion").and_then(Value::as_str);
             rpc_result(
                 id,
                 json!({
-                    "protocolVersion": version,
-                    "capabilities": { "tools": {} },
-                    "serverInfo": { "name": "shard-launcher", "version": env!("CARGO_PKG_VERSION") }
+                    "protocolVersion": negotiate_version(requested),
+                    "capabilities": { "tools": { "listChanged": false } },
+                    "serverInfo": { "name": "shard-launcher", "title": "Shard Launcher", "version": env!("CARGO_PKG_VERSION") },
+                    "instructions": INSTRUCTIONS
                 }),
             )
         }
-        "notifications/initialized" => StatusCode::ACCEPTED.into_response(),
         "ping" => rpc_result(id, json!({})),
-        "tools/list" => rpc_result(
-            id,
-            json!({
-                "tools": [
-                    { "name": "get_instances", "description": "List all downloaded Minecraft instances.", "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false } },
-                    { "name": "get_instance_details", "description": "Get details for one instance.", "inputSchema": { "type": "object", "properties": { "instance_id": { "type": "string" } }, "required": ["instance_id"], "additionalProperties": false } },
-                    { "name": "get_running_instances", "description": "List currently running Minecraft instances.", "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false } },
-                    { "name": "get_instance_content", "description": "List installed mods, resource packs, shaders, and data packs.", "inputSchema": { "type": "object", "properties": { "instance_id": { "type": "string" } }, "required": ["instance_id"], "additionalProperties": false } },
-                    { "name": "get_instance_worlds", "description": "List worlds saved in an instance.", "inputSchema": { "type": "object", "properties": { "instance_id": { "type": "string" } }, "required": ["instance_id"], "additionalProperties": false } },
-                    { "name": "get_content_updates", "description": "Check for available updates to installed content.", "inputSchema": { "type": "object", "properties": { "instance_id": { "type": "string" } }, "required": ["instance_id"], "additionalProperties": false } },
-                    { "name": "launch_instance", "description": "Launch a Minecraft instance by its ID.", "inputSchema": { "type": "object", "properties": { "instance_id": { "type": "string" } }, "required": ["instance_id"], "additionalProperties": false } },
-                    { "name": "stop_instance", "description": "Stop a running Minecraft instance by its ID.", "inputSchema": { "type": "object", "properties": { "instance_id": { "type": "string" } }, "required": ["instance_id"], "additionalProperties": false } },
-                    { "name": "search_content", "description": "Search Modrinth or CurseForge for mods, resource packs, shaders, or data packs.", "inputSchema": { "type": "object", "properties": { "query": { "type": "string" }, "kind": { "type": "string", "enum": ["mod", "resourcepack", "shader", "datapack"] }, "instance_id": { "type": "string" }, "source": { "type": "string", "enum": ["modrinth", "curseforge"] }, "any_version": { "type": "boolean" }, "game_version": { "type": "string" }, "sort": { "type": "string" }, "offset": { "type": "integer" }, "categories": { "type": "array", "items": { "type": "string" } }, "loaders": { "type": "array", "items": { "type": "string" } }, "environment": { "type": "string", "enum": ["client", "server", "both"] } }, "required": ["kind"], "additionalProperties": false } },
-                    { "name": "install_content", "description": "Install the latest compatible project version into an instance.", "inputSchema": { "type": "object", "properties": { "instance_id": { "type": "string" }, "project_id": { "type": "string" }, "kind": { "type": "string", "enum": ["mod", "resourcepack", "shader", "datapack"] }, "source": { "type": "string", "enum": ["modrinth", "curseforge"] }, "any_version": { "type": "boolean" }, "game_version": { "type": "string" } }, "required": ["instance_id", "project_id", "kind"], "additionalProperties": false } },
-                    { "name": "toggle_content", "description": "Enable or disable installed content in an instance.", "inputSchema": { "type": "object", "properties": { "instance_id": { "type": "string" }, "kind": { "type": "string", "enum": ["mod", "resourcepack", "shader", "datapack"] }, "file": { "type": "string" }, "enabled": { "type": "boolean" } }, "required": ["instance_id", "kind", "file", "enabled"], "additionalProperties": false } },
-                    { "name": "remove_content", "description": "Permanently remove installed content from an instance.", "inputSchema": { "type": "object", "properties": { "instance_id": { "type": "string" }, "kind": { "type": "string", "enum": ["mod", "resourcepack", "shader", "datapack"] }, "file": { "type": "string" } }, "required": ["instance_id", "kind", "file"], "additionalProperties": false } }
-                ]
-            }),
-        ),
+        "tools/list" => rpc_result(id, tools()),
         "tools/call" => {
             let Some(name) = request.params.get("name").and_then(Value::as_str) else {
-                return rpc_error(Some(id), -32602, "Missing tool name");
+                return Some(rpc_error(Some(id), -32602, "Missing tool name"));
             };
             let args = request
                 .params
                 .get("arguments")
                 .cloned()
                 .unwrap_or_else(|| json!({}));
-            let result = call_tool(&api_state, name, args).await;
-            if matches!(&result, Err(error) if error == "Unknown tool") {
-                return rpc_error(Some(id), -32602, "Unknown tool");
-            }
+            let Some(result) = crate::mcp_tools::call(&api_state.app_handle, name, &args).await else {
+                return Some(rpc_error(Some(id), -32602, &format!("Unknown tool: {name}")));
+            };
             let is_error = result.is_err();
             let text = result.unwrap_or_else(|error| error);
             rpc_result(
@@ -447,8 +180,40 @@ async fn mcp_endpoint(
                 }),
             )
         }
+        // Списков ресурсов и промптов у нас нет — отвечаем пусто, а не ошибкой: так спокойнее клиентам
+        "resources/list" => rpc_result(id, json!({ "resources": [] })),
+        "resources/templates/list" => rpc_result(id, json!({ "resourceTemplates": [] })),
+        "prompts/list" => rpc_result(id, json!({ "prompts": [] })),
         _ => rpc_error(Some(id), -32601, "Method not found"),
+    })
+}
+
+/// MCP Streamable HTTP: тело — один JSON-RPC запрос или пакет (массив). На уведомления и
+/// ответы клиента — 202 без тела, на запросы — JSON.
+async fn mcp_endpoint(State(api_state): State<ApiState>, body: axum::body::Bytes) -> Response {
+    let Ok(message) = serde_json::from_slice::<Value>(&body) else {
+        return Json(rpc_error(None, -32700, "Parse error")).into_response();
+    };
+    let reply = match message {
+        Value::Array(batch) if batch.is_empty() => Some(rpc_error(None, -32600, "Empty batch")),
+        Value::Array(batch) => {
+            let mut replies = vec![];
+            for message in batch {
+                replies.extend(handle_rpc(&api_state, message).await);
+            }
+            (!replies.is_empty()).then_some(Value::Array(replies))
+        }
+        message => handle_rpc(&api_state, message).await,
+    };
+    match reply {
+        Some(reply) => Json(reply).into_response(),
+        None => StatusCode::ACCEPTED.into_response(),
     }
+}
+
+/// Поток уведомлений от сервера (GET) не поддерживаем — спецификация велит ответить 405.
+async fn method_not_allowed() -> StatusCode {
+    StatusCode::METHOD_NOT_ALLOWED
 }
 
 pub fn set_enabled(
@@ -485,7 +250,7 @@ pub fn set_enabled(
         return Ok(());
     }
 
-    let listener = std::net::TcpListener::bind("127.0.0.1:8542")
+    let listener = std::net::TcpListener::bind(("127.0.0.1", PORT))
         .map_err(|error| crate::error::Error::msg(format!("Failed to bind MCP API: {error}")))?;
     listener.set_nonblocking(true)?;
     let state = ApiState {
@@ -493,10 +258,8 @@ pub fn set_enabled(
         api_token: runtime.api_token.clone(),
     };
     let app = Router::new()
-        .route("/mcp", post(mcp_endpoint))
-        .route("/api/instances", get(get_instances))
-        .route("/api/launch", post(launch_instance))
-        .route("/api/stop", post(stop_instance))
+        // Streamable HTTP: запросы идут POST-ом; поток сервер→клиент (GET) и сессии не нужны
+        .route("/mcp", post(mcp_endpoint).get(method_not_allowed).delete(method_not_allowed))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             auth_middleware,
@@ -515,7 +278,7 @@ pub fn set_enabled(
                 return;
             }
         };
-        eprintln!("Shard Launcher MCP API listening on http://127.0.0.1:8542/mcp");
+        eprintln!("Shard Launcher MCP server listening on http://127.0.0.1:{PORT}/mcp");
         if let Err(error) = axum::serve(listener, app)
             .with_graceful_shutdown(async {
                 let _ = shutdown_rx.await;
@@ -545,6 +308,28 @@ mod tests {
         assert!(!origin_allowed(Some(&HeaderValue::from_static(
             "http://attacker.example"
         ))));
+    }
+
+    #[test]
+    fn negotiates_protocol_version() {
+        assert_eq!(negotiate_version(Some("2025-03-26")), "2025-03-26");
+        assert_eq!(negotiate_version(Some("2024-11-05")), "2024-11-05");
+        assert_eq!(negotiate_version(Some("1999-01-01")), PROTOCOL_VERSIONS[0]);
+        assert_eq!(negotiate_version(None), PROTOCOL_VERSIONS[0]);
+    }
+
+    #[test]
+    fn lists_annotated_tools() {
+        let tools = tools();
+        let list = tools["tools"].as_array().unwrap();
+        assert!(list.iter().all(|t| t["annotations"].is_object()));
+        assert!(list.iter().any(|t| t["name"] == "install_modpack"));
+    }
+
+    #[test]
+    fn accepts_local_origins_on_our_port() {
+        assert!(origin_allowed(Some(&HeaderValue::from_static("http://localhost:8542"))));
+        assert!(!origin_allowed(Some(&HeaderValue::from_static("http://localhost:3000"))));
     }
 
     #[test]

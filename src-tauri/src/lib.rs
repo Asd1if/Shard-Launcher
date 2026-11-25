@@ -16,12 +16,14 @@ mod import_launchers;
 mod instances;
 mod launch;
 mod loaders;
+mod mcp_tools;
 mod mclogs;
 mod modmeta;
 mod modpack;
 mod nbt;
 mod news;
 mod paths;
+mod platform;
 mod playtime;
 mod progress;
 mod server;
@@ -46,11 +48,13 @@ use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    platform::early_init();
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .setup(|app| {
+            platform::init_credential_store();
             let root = settings::data_root(&app.path().app_data_dir()?);
             std::fs::create_dir_all(&root)?;
             // Скриншоты и иконки миров показываем прямо с диска через asset-протокол

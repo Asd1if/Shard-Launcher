@@ -1,14 +1,21 @@
-# Shard Launcher MCP
+# shard-mcp
 
-Use the built-in HTTP MCP server for local clients:
+Shard Launcher has an MCP server built in (Streamable HTTP at `http://127.0.0.1:8542/mcp`).
+Clients that support HTTP MCP servers should connect to it directly — see **Settings → MCP server**.
 
-1. In Shard, enable **Settings → MCP server** and copy the link.
-2. Add a **Web server** connector named `Shard` in a local MCP client such as LLM Studio and paste
-   the link.
+`shard-mcp.mjs` is a dependency-free stdio bridge for clients that can only start local commands.
+It forwards every JSON-RPC message to Shard, so all of Shard's tools are available. Node.js 18+.
 
-The link is a credential: keep it private. It works only on the same computer while Shard is open.
-Cloud-hosted MCP connectors cannot reach the local endpoint.
+```json
+{
+  "mcpServers": {
+    "shard": {
+      "command": "node",
+      "args": ["/absolute/path/to/shard-mcp/shard-mcp.mjs", "http://127.0.0.1:8542/mcp?token=…"]
+    }
+  }
+}
+```
 
-The `shard-mcp` Node package remains as a legacy stdio bridge for clients that need it. Build it
-with `npm ci` and `npm run build`, then configure the client to run `node` with the absolute path
-to `dist/index.js`. The bridge requires `SHARD_API_TOKEN` to match the launcher's token.
+The link (with its token) is copied from **Settings → MCP server** in Shard. It is a credential:
+keep it private. It works only on the same computer while Shard is open.

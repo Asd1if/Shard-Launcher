@@ -21,7 +21,20 @@ use crate::state::AppState;
 
 const API: &str = "https://api.playit.gg";
 const RELEASES: &str = "https://api.github.com/repos/playit-cloud/playit-agent/releases/latest";
-const AGENT_ASSET: &str = "playitd-windows-x86_64-signed.exe";
+
+/// Файл агента в релизе playit для этой системы. На Linux `playit-linux-*` — тот же демон
+/// `playitd` с теми же ключами, что и на Windows.
+fn agent_asset() -> Option<&'static str> {
+    match (std::env::consts::OS, std::env::consts::ARCH) {
+        ("windows", "x86_64" | "aarch64") => Some("playitd-windows-x86_64-signed.exe"),
+        ("windows", "x86") => Some("playitd-windows-x86-signed.exe"),
+        ("linux", "x86_64") => Some("playit-linux-amd64"),
+        ("linux", "aarch64") => Some("playit-linux-aarch64"),
+        ("linux", "arm") => Some("playit-linux-armv7"),
+        ("linux", "x86") => Some("playit-linux-i686"),
+        _ => None,
+    }
+}
 
 /// Запущенный агент. Один на все туннели: playit сам раздаёт их по портам.
 static AGENT: LazyLock<Mutex<Option<Child>>> = LazyLock::new(Default::default);
@@ -35,7 +48,7 @@ fn secret_file(paths: &Paths) -> PathBuf {
 }
 
 fn agent_exe(paths: &Paths) -> PathBuf {
-    dir(paths).join("playitd.exe")
+    dir(paths).join(if cfg!(windows) { "playitd.exe" } else { "playitd" })
 }
 
 fn secret(paths: &Paths) -> Option<String> {
@@ -209,17 +222,33 @@ async fn ensure_agent(state: &AppState) -> Result<PathBuf> {
         name: String,
         browser_download_url: String,
     }
+    let asset = agent_asset().ok_or_else(|| Error::msg("tunnel_agent_missing"))?;
     let release: Release = state.http.get(RELEASES).send().await?.error_for_status()?.json().await?;
     let url = release
         .assets
         .into_iter()
-        .find(|a| a.name == AGENT_ASSET)
+        .find(|a| a.name == asset)
         .map(|a| a.browser_download_url)
         .ok_or_else(|| Error::msg("tunnel_agent_missing"))?;
     let bytes = state.http.get(url).send().await?.error_for_status()?.bytes().await?;
     std::fs::create_dir_all(dir(&state.paths))?;
     crate::download::write_atomic(&exe, &bytes).await?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755))?;
+    }
     Ok(exe)
+}
+
+/// Канал управления агентом: именованный канал на Windows, сокет в XDG_RUNTIME_DIR на Linux.
+fn socket_path(paths: &Paths) -> std::ffi::OsString {
+    if cfg!(windows) {
+        format!(r"\\.\pipe\shard-playit-{}", std::process::id()).into()
+    } else {
+        let runtime = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from).filter(|d| d.is_dir()).unwrap_or_else(|| dir(paths));
+        runtime.join(format!("shard-playit-{}.sock", std::process::id())).into_os_string()
+    }
 }
 
 async fn spawn_agent(state: &AppState) -> Result<()> {
@@ -232,7 +261,7 @@ async fn spawn_agent(state: &AppState) -> Result<()> {
         .arg("--secret-path")
         .arg(secret_file(&state.paths))
         .arg("--socket-path")
-        .arg(format!(r"\\.\pipe\shard-playit-{}", std::process::id()))
+        .arg(socket_path(&state.paths))
         .arg("--log-path")
         .arg(dir(&state.paths).join("playitd.log"))
         .stdin(std::process::Stdio::null())
