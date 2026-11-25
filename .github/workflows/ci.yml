@@ -1,6 +1,6 @@
 name: CI
 
-# Проверка на каждый push и pull request: типы TypeScript, сборка Rust и тесты.
+# Проверка на каждый push и pull request: типы TypeScript, сборка Rust и тесты на Windows и Linux.
 on:
   push:
     branches: [main]
@@ -12,9 +12,19 @@ concurrency:
 
 jobs:
   check:
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-22.04]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libssl-dev librsvg2-dev libdbus-1-dev
 
       - uses: actions/setup-node@v4
         with:
@@ -37,6 +47,7 @@ jobs:
 
       - name: Rust check and tests
         working-directory: src-tauri
+        shell: bash
         env:
           SHARD_PUBLIC_BUILD: "1"
         run: |

@@ -275,7 +275,7 @@
   "settings": {
     "title": "Settings",
     "theme": "Theme",
-    "themeHint": "System follows Windows, Auto follows your background image",
+    "themeHint": "System follows your OS, Auto follows your background image",
     "themes": {
       "graphite": "Dark",
       "light": "Light",
@@ -390,7 +390,7 @@
   "errors": {
     "javaTooOld": "This version needs Java {{required}}, but Java {{found}} is selected. Pick another Java in the instance settings.",
     "preLaunchFailed": "The pre-launch command failed (code {{code}}). Launch cancelled.",
-    "javaNotRunnable": "This Java doesn't run. Check the path to java.exe.",
+    "javaNotRunnable": "This Java doesn't run. Check the path to the java executable.",
     "loaderUnavailable": "This Minecraft version has no loader versions.",
     "loaderInstallFailed": "Couldn't install the loader: {{detail}}",
     "noCompatibleVersion": "This project has no version for this instance.",
@@ -449,14 +449,15 @@
     "badNick": "Nickname: 3–16 Latin letters, digits or “_”",
     "playerNotFound": "No licensed player with this name",
     "badPath": "Invalid path",
-    "fileTooLarge": "File is over 2 MB — open it in the file explorer",
+    "fileTooLarge": "File is over 2 MB — open it in your file manager",
     "fileBinary": "Not a text file",
     "instanceRunning": "Close the game first",
     "optionsMissing": "This instance has no settings yet — launch the game once",
     "updateGameRunning": "Close the game first",
     "updateNone": "No updates",
     "updateBadAsset": "The release has no launcher file",
-    "updateBadHash": "The update file failed the integrity check, try again later"
+    "updateBadHash": "The update file failed the integrity check, try again later",
+    "updatePackageManager": "Shard is installed as a system package — update it with your package manager."
   },
   "instanceSettings": {
     "general": "General",
@@ -474,6 +475,7 @@
     "javaManaged": "(downloaded by Shard)",
     "javaCustom": "Custom path",
     "javaPathPlaceholder": "C:\\Program Files\\Java\\bin\\javaw.exe",
+    "javaPathPlaceholderUnix": "/usr/lib/jvm/java-21-openjdk/bin/java",
     "javaCheck": "Check",
     "javaOk": "Works: Java {{version}}, {{arch}}",
     "javaRescan": "Scan again",
@@ -784,15 +786,15 @@
     },
     "discord": "Discord status",
     "discordHint": "Show friends that you're in Shard and what you're playing",
-    "mcp": "MCP server for AI",
-    "mcpHint": "Enable the server and add its link to a local MCP client, such as LLM Studio → Connectors → Web server. It works on this computer while Shard is open.",
+    "mcp": "MCP server",
+    "mcpHint": "A local Model Context Protocol server: AI assistants and agents can list instances, manage mods and launch the game. Works with any MCP client (Claude, Cursor, VS Code, LM Studio, Jan…) on this computer while Shard is open.",
     "mcpUrl": "Local MCP link",
     "mcpCopyUrl": "Copy link",
     "mcpRegenerate": "Create a new link",
     "mcpUrlCopied": "MCP link copied",
     "dataDir": "Games and data folder",
     "dataHint": "Instances, game versions, Java and libraries live here. Move it to any drive.",
-    "dataPortable": "Portable version: data always lives next to Shard.exe.",
+    "dataPortable": "Portable version: data always lives next to the launcher.",
     "dataOpen": "Open folder",
     "dataChange": "Move…",
     "dataReset": "Back to default",
@@ -803,7 +805,20 @@
     "dataMove": "Move and restart",
     "dataMoving": "Moving…",
     "news": "Minecraft news",
-    "newsHint": "New versions and snapshots on the home page"
+    "newsHint": "New versions and snapshots on the home page",
+    "mcpSetup": "Connection format",
+    "mcpCopyConfig": "Copy",
+    "mcpConfigCopied": "Configuration copied",
+    "mcpFormats": {
+      "json": "HTTP (JSON)",
+      "claude": "Claude Code",
+      "stdio": "stdio"
+    },
+    "mcpFormatHints": {
+      "json": "For clients that support remote (HTTP) MCP servers: add it to mcp.json or the client's MCP settings.",
+      "claude": "Run this in a terminal.",
+      "stdio": "For clients that only run local commands (e.g. Claude Desktop). Needs Node.js."
+    }
   },
   "figura": {
     "emptyTitle": "No Figura models yet",
@@ -944,7 +959,7 @@
     "tunnelLinked": "playit.gg connected",
     "tunnelOpening": "Opening the tunnel…",
     "tunnelUnlink": "Disconnect playit.gg",
-    "firewall": "On first start Windows asks whether Java may use the network — allow it.",
+    "firewall": "On first start your firewall may ask whether Java can use the network — allow it.",
     "copied": "Copied",
     "panel": {
       "console": "Console",
@@ -1271,7 +1286,7 @@
   "files": {
     "root": "Server",
     "refresh": "Refresh",
-    "explorer": "In explorer",
+    "explorer": "Open folder",
     "empty": "Folder is empty",
     "save": "Save",
     "saved": "File saved",
@@ -1403,6 +1418,8 @@
     "installing": "Downloading…",
     "check": "Check for updates",
     "latest": "You're on the latest version",
-    "starting": "Starting the update…"
+    "starting": "Starting the update…",
+    "openRelease": "Release page",
+    "packageHint": "Shard is installed as a package — update it with your package manager (pacman/yay, dnf, apt) or download the new version from the release page."
   }
 }

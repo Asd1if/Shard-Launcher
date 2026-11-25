@@ -17,6 +17,11 @@ const HIDDEN: [&str; 2] = ["shard-server.json", "shard-store.json"];
 
 /// Путь внутри папки сервера; `..`, абсолютные пути и диски запрещены.
 pub(crate) fn resolve(root: &Path, rel: &str) -> Result<PathBuf> {
+    let bytes = rel.as_bytes();
+    if bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' {
+        return Err(Error::msg("bad_path"));
+    }
+
     let mut out = root.to_path_buf();
     for part in Path::new(rel.trim_matches(['/', '\\'])).components() {
         match part {

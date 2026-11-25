@@ -131,12 +131,108 @@ fn client_id() -> Result<String> {
 const CHUNK: usize = 2000;
 const MAX_CHUNKS: usize = 16;
 
+#[cfg(not(test))]
 fn keyring_entry(name: &str) -> Result<keyring::Entry> {
     keyring::Entry::new(KEYRING_SERVICE, name).map_err(|e| Error::msg(format!("credential store: {e}")))
 }
 
+#[cfg(not(test))]
 fn keyring_err(e: keyring::Error) -> Error {
     Error::msg(format!("credential store: {e}"))
+}
+
+#[cfg(test)]
+fn test_credentials() -> &'static std::sync::Mutex<std::collections::HashMap<String, Vec<u8>>> {
+    static CREDENTIALS: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, Vec<u8>>>> =
+        std::sync::OnceLock::new();
+    CREDENTIALS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+fn set_credential_secret(name: &str, secret: &[u8]) -> Result<()> {
+    #[cfg(test)]
+    {
+        test_credentials()
+            .lock()
+            .map_err(|e| Error::msg(e.to_string()))?
+            .insert(name.to_owned(), secret.to_vec());
+        Ok(())
+    }
+    #[cfg(not(test))]
+    {
+        keyring_entry(name)?.set_secret(secret).map_err(keyring_err)
+    }
+}
+
+fn set_credential_password(name: &str, password: &str) -> Result<()> {
+    #[cfg(test)]
+    {
+        test_credentials()
+            .lock()
+            .map_err(|e| Error::msg(e.to_string()))?
+            .insert(name.to_owned(), password.as_bytes().to_vec());
+        Ok(())
+    }
+    #[cfg(not(test))]
+    {
+        keyring_entry(name)?.set_password(password).map_err(keyring_err)
+    }
+}
+
+fn get_credential_password(name: &str) -> Result<Option<String>> {
+    #[cfg(test)]
+    {
+        test_credentials()
+            .lock()
+            .map_err(|e| Error::msg(e.to_string()))?
+            .get(name)
+            .cloned()
+            .map(String::from_utf8)
+            .transpose()
+            .map_err(|e| Error::msg(e.to_string()))
+    }
+    #[cfg(not(test))]
+    {
+        match keyring_entry(name)?.get_password() {
+            Ok(password) => Ok(Some(password)),
+            Err(keyring::Error::NoEntry) => Ok(None),
+            Err(e) => Err(keyring_err(e)),
+        }
+    }
+}
+
+fn get_credential_secret(name: &str) -> Result<Option<Vec<u8>>> {
+    #[cfg(test)]
+    {
+        Ok(test_credentials()
+            .lock()
+            .map_err(|e| Error::msg(e.to_string()))?
+            .get(name)
+            .cloned())
+    }
+    #[cfg(not(test))]
+    {
+        match keyring_entry(name)?.get_secret() {
+            Ok(secret) => Ok(Some(secret)),
+            Err(keyring::Error::NoEntry) => Ok(None),
+            Err(e) => Err(keyring_err(e)),
+        }
+    }
+}
+
+fn delete_credential(name: &str) -> Result<()> {
+    #[cfg(test)]
+    {
+        test_credentials()
+            .lock()
+            .map_err(|e| Error::msg(e.to_string()))?
+            .remove(name)
+            .ok_or_else(|| Error::msg("credential store: no entry"))?;
+        Ok(())
+    }
+    #[cfg(not(test))]
+    {
+        keyring_entry(name)?.delete_credential().map_err(keyring_err)
+    }
 }
 
 fn store_secret<T: Serialize>(kind: &str, uuid: &str, value: &T) -> Result<()> {
@@ -147,38 +243,28 @@ fn store_secret<T: Serialize>(kind: &str, uuid: &str, value: &T) -> Result<()> {
         return Err(Error::msg("credential store: secret too large"));
     }
     for (i, chunk) in chunks.iter().enumerate() {
-        keyring_entry(&format!("{kind}:{uuid}#{i}"))?.set_secret(chunk).map_err(keyring_err)?;
+        set_credential_secret(&format!("{kind}:{uuid}#{i}"), chunk)?;
     }
-    keyring_entry(&format!("{kind}:{uuid}"))?.set_password(&chunks.len().to_string()).map_err(keyring_err)
+    set_credential_password(&format!("{kind}:{uuid}"), &chunks.len().to_string())
 }
 
 fn read_secret<T: for<'de> Deserialize<'de>>(kind: &str, uuid: &str) -> Result<Option<T>> {
-    let count = match keyring_entry(&format!("{kind}:{uuid}"))?.get_password() {
-        Ok(text) => text.parse::<usize>().unwrap_or(0).min(MAX_CHUNKS),
-        Err(keyring::Error::NoEntry) => return Ok(None),
-        Err(e) => return Err(keyring_err(e)),
-    };
+    let Some(text) = get_credential_password(&format!("{kind}:{uuid}"))? else { return Ok(None) };
+    let count = text.parse::<usize>().unwrap_or(0).min(MAX_CHUNKS);
     let mut bytes = vec![];
     for i in 0..count {
-        match keyring_entry(&format!("{kind}:{uuid}#{i}"))?.get_secret() {
-            Ok(part) => bytes.extend(part),
-            Err(keyring::Error::NoEntry) => return Ok(None),
-            Err(e) => return Err(keyring_err(e)),
-        }
+        let Some(part) = get_credential_secret(&format!("{kind}:{uuid}#{i}"))? else { return Ok(None) };
+        bytes.extend(part);
     }
     // Повреждённый секрет считаем отсутствующим: пользователь просто войдёт заново
     Ok(serde_json::from_slice(&bytes).ok())
 }
 
 fn forget_kind(kind: &str, uuid: &str) {
-    if let Ok(entry) = keyring_entry(&format!("{kind}:{uuid}")) {
-        let _ = entry.delete_credential();
-    }
+    let _ = delete_credential(&format!("{kind}:{uuid}"));
     for i in 0..MAX_CHUNKS {
-        if let Ok(entry) = keyring_entry(&format!("{kind}:{uuid}#{i}")) {
-            if entry.delete_credential().is_err() {
-                break;
-            }
+        if delete_credential(&format!("{kind}:{uuid}#{i}")).is_err() {
+            break;
         }
     }
 }

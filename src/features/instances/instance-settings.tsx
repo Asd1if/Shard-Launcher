@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { showToast } from "@/components/toast";
 import { backend, type JavaInfo } from "@/lib/backend";
 import { errorText } from "@/lib/errors";
-import { cn } from "@/lib/utils";
+import { cn, isWindows } from "@/lib/utils";
 import i18n from "@/i18n";
 import { IconPickerDialog } from "./icon-picker";
 import { InstanceIcon } from "./instance-icon";
@@ -409,7 +409,7 @@ export function JavaPicker({ value, onChange }: { value: string | null; onChange
                 setCustom(e.target.value);
                 setChecked(null);
               }}
-              placeholder={t("instanceSettings.javaPathPlaceholder")}
+              placeholder={t(isWindows ? "instanceSettings.javaPathPlaceholder" : "instanceSettings.javaPathPlaceholderUnix")}
               spellCheck={false}
               className="h-9 bg-surface-0 font-mono text-[12px]"
             />

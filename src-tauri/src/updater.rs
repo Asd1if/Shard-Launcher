@@ -1,8 +1,11 @@
 //! Автообновление лаунчера из релизов GitHub. Репозиторий задаётся при сборке
 //! (`update-repo.txt` или SHARD_UPDATE_REPO, вида `owner/name`); без него проверка выключена.
 //!
-//! Установленный лаунчер (рядом лежит uninstall.exe) обновляется установщиком `*-setup.exe`.
-//! Портативный и просто скопированный exe подменяют себя файлом из `*portable*.zip`.
+//! Windows: установленный лаунчер (рядом лежит uninstall.exe) обновляется установщиком
+//! `*-setup.exe`, портативный и просто скопированный exe подменяют себя файлом из `*portable*.zip`.
+//!
+//! Linux: AppImage подменяет свой файл новым `*.AppImage`. Пакеты (deb, rpm, AUR) обновляет
+//! пакетный менеджер — лаунчер только сообщает о новой версии и открывает страницу релиза.
 
 use std::io::Read;
 use std::path::PathBuf;
@@ -48,6 +51,8 @@ pub struct UpdateInfo {
     pub notes: String,
     pub url: String,
     pub size: u64,
+    /// false — обновить может только пакетный менеджер, показываем ссылку на релиз
+    pub self_update: bool,
 }
 
 fn repo() -> Option<&'static str> {
@@ -74,21 +79,56 @@ fn exe() -> Result<PathBuf> {
     Ok(std::env::current_exe()?)
 }
 
-/// Лаунчер поставлен установщиком — тогда обновляем им же.
-fn installed() -> bool {
-    exe().ok().and_then(|p| p.parent().map(|d| d.join("uninstall.exe").is_file())).unwrap_or(false)
+/// Как этот экземпляр лаунчера может обновиться сам.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Kind {
+    /// Windows: стоит через установщик (рядом лежит uninstall.exe)
+    Installer,
+    /// Windows: портативный или просто скопированный exe
+    PortableExe,
+    /// Linux: запущен из AppImage — путь к файлу в $APPIMAGE
+    AppImage,
+    /// Linux: пакет deb/rpm/AUR или сборка из исходников — обновляет пакетный менеджер
+    Package,
 }
 
-fn pick(assets: &[Asset]) -> Option<Asset> {
-    let name = |a: &&Asset| a.name.to_lowercase();
-    if installed() {
-        assets.iter().find(|a| name(a).ends_with("-setup.exe")).cloned()
+fn kind() -> Kind {
+    if cfg!(windows) {
+        let installed = exe().ok().and_then(|p| p.parent().map(|d| d.join("uninstall.exe").is_file())).unwrap_or(false);
+        if installed { Kind::Installer } else { Kind::PortableExe }
+    } else if appimage().is_some() {
+        Kind::AppImage
     } else {
-        assets.iter().find(|a| name(a).ends_with(".zip") && name(a).contains("portable")).cloned()
+        Kind::Package
     }
 }
 
-async fn latest(state: &AppState) -> Result<Option<(Release, Asset)>> {
+fn appimage() -> Option<PathBuf> {
+    std::env::var_os("APPIMAGE").map(PathBuf::from).filter(|p| p.is_file())
+}
+
+/// Слова, которыми релизы обозначают архитектуру этой системы в именах файлов.
+fn arch_tags() -> &'static [&'static str] {
+    match std::env::consts::ARCH {
+        "x86_64" => &["amd64", "x86_64"],
+        "aarch64" => &["aarch64", "arm64"],
+        _ => &[],
+    }
+}
+
+fn pick(assets: &[Asset], kind: Kind) -> Option<Asset> {
+    let name = |a: &&Asset| a.name.to_lowercase();
+    let for_arch = |a: &&Asset| arch_tags().iter().any(|t| name(a).contains(t));
+    match kind {
+        Kind::Installer => assets.iter().find(|a| name(a).ends_with("-setup.exe")).cloned(),
+        Kind::PortableExe => assets.iter().find(|a| name(a).ends_with(".zip") && name(a).contains("portable")).cloned(),
+        // Для пакетов файл нужен только чтобы показать размер — берём AppImage той же архитектуры
+        Kind::AppImage | Kind::Package => assets.iter().find(|a| name(a).ends_with(".appimage") && for_arch(a)).cloned(),
+    }
+}
+
+/// Новый релиз и файл для обновления. Файла может не быть только для пакетов — им он не нужен.
+async fn latest(state: &AppState) -> Result<Option<(Release, Option<Asset>)>> {
     let Some(repo) = repo() else { return Ok(None) };
     let release: Release = state
         .http
@@ -102,7 +142,10 @@ async fn latest(state: &AppState) -> Result<Option<(Release, Asset)>> {
     if release.draft || release.prerelease || !newer(&release.tag_name, env!("CARGO_PKG_VERSION")) {
         return Ok(None);
     }
-    let Some(asset) = pick(&release.assets) else { return Ok(None) };
+    let asset = pick(&release.assets, kind());
+    if asset.is_none() && kind() != Kind::Package {
+        return Ok(None);
+    }
     Ok(Some((release, asset)))
 }
 
@@ -114,7 +157,8 @@ pub async fn update_check(state: State<'_, AppState>) -> Result<Option<UpdateInf
         version: r.tag_name.trim_start_matches(['v', 'V']).to_owned(),
         notes: r.body,
         url: r.html_url,
-        size: a.size,
+        size: a.map_or(0, |a| a.size),
+        self_update: kind() != Kind::Package,
     }))
 }
 
@@ -129,7 +173,11 @@ pub async fn update_install(app: AppHandle, state: State<'_, AppState>, progress
     if !state.running.lock().await.is_empty() {
         return Err(Error::msg("update_game_running"));
     }
+    if kind() == Kind::Package {
+        return Err(Error::msg("update_package_manager"));
+    }
     let (_, asset) = latest(&state).await?.ok_or_else(|| Error::msg("update_none"))?;
+    let asset = asset.ok_or_else(|| Error::msg("update_bad_asset"))?;
     let mut response = state.http.get(&asset.browser_download_url).send().await?.error_for_status()?;
     let total = response.content_length().unwrap_or(asset.size);
     let mut tracker = crate::progress::Tracker::new(progress, total);
@@ -144,30 +192,59 @@ pub async fn update_install(app: AppHandle, state: State<'_, AppState>, progress
         return Err(Error::msg("update_bad_hash"));
     }
 
-    if installed() {
-        let setup = std::env::temp_dir().join(&asset.name);
-        std::fs::write(&setup, &bytes)?;
-        // Установщик сам найдёт старую версию и заменит её
-        std::process::Command::new(setup).spawn()?;
-    } else {
-        let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes))?;
-        let index = (0..zip.len())
-            .find(|&i| zip.by_index(i).map(|f| f.name().to_lowercase().ends_with(".exe")).unwrap_or(false))
-            .ok_or_else(|| Error::msg("update_bad_asset"))?;
-        let mut new_exe = Vec::new();
-        zip.by_index(index)?.read_to_end(&mut new_exe)?;
-        let current = exe()?;
-        let old = current.with_extension("exe.old");
-        let _ = std::fs::remove_file(&old);
-        // Запущенный exe нельзя перезаписать, но можно переименовать
-        std::fs::rename(&current, &old)?;
-        if let Err(e) = std::fs::write(&current, &new_exe) {
-            let _ = std::fs::rename(&old, &current);
-            return Err(e.into());
+    match kind() {
+        Kind::Installer => {
+            let setup = std::env::temp_dir().join(&asset.name);
+            std::fs::write(&setup, &bytes)?;
+            // Установщик сам найдёт старую версию и заменит её
+            std::process::Command::new(setup).spawn()?;
         }
-        std::process::Command::new(&current).spawn()?;
+        Kind::PortableExe => replace_exe(bytes)?,
+        Kind::AppImage => replace_appimage(&bytes)?,
+        Kind::Package => return Err(Error::msg("update_package_manager")),
     }
     app.exit(0);
+    Ok(())
+}
+
+fn replace_exe(bytes: Vec<u8>) -> Result<()> {
+    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes))?;
+    let index = (0..zip.len())
+        .find(|&i| zip.by_index(i).map(|f| f.name().to_lowercase().ends_with(".exe")).unwrap_or(false))
+        .ok_or_else(|| Error::msg("update_bad_asset"))?;
+    let mut new_exe = Vec::new();
+    zip.by_index(index)?.read_to_end(&mut new_exe)?;
+    let current = exe()?;
+    let old = current.with_extension("exe.old");
+    let _ = std::fs::remove_file(&old);
+    // Запущенный exe нельзя перезаписать, но можно переименовать
+    std::fs::rename(&current, &old)?;
+    if let Err(e) = std::fs::write(&current, &new_exe) {
+        let _ = std::fs::rename(&old, &current);
+        return Err(e.into());
+    }
+    std::process::Command::new(&current).spawn()?;
+    Ok(())
+}
+
+/// Пишет новый AppImage рядом со старым и переименовывает поверх: запущенный файл
+/// смонтирован и продолжает работать, а при следующем запуске уже будет новая версия.
+fn replace_appimage(bytes: &[u8]) -> Result<()> {
+    let current = appimage().ok_or_else(|| Error::msg("update_bad_asset"))?;
+    let mut temp = current.clone().into_os_string();
+    temp.push(".new");
+    let temp = PathBuf::from(temp);
+    std::fs::write(&temp, bytes)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&temp, std::fs::Permissions::from_mode(0o755))?;
+    }
+    if let Err(e) = std::fs::rename(&temp, &current) {
+        let _ = std::fs::remove_file(&temp);
+        return Err(e.into());
+    }
+    std::process::Command::new(&current).spawn()?;
     Ok(())
 }
 

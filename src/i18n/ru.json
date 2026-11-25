@@ -283,7 +283,7 @@
   "settings": {
     "title": "Настройки",
     "theme": "Тема",
-    "themeHint": "Системная — как в Windows, Авто — по картинке фона",
+    "themeHint": "Системная — как в системе, Авто — по картинке фона",
     "themes": {
       "graphite": "Тёмная",
       "light": "Светлая",
@@ -398,7 +398,7 @@
   "errors": {
     "javaTooOld": "Для этой версии нужна Java {{required}}, а выбрана Java {{found}}. Выберите другую Java в настройках сборки.",
     "preLaunchFailed": "Команда перед запуском завершилась с ошибкой (код {{code}}). Запуск отменён.",
-    "javaNotRunnable": "Эта Java не запускается. Проверьте путь к java.exe.",
+    "javaNotRunnable": "Эта Java не запускается. Проверьте путь к исполняемому файлу java.",
     "loaderUnavailable": "Для этой версии Minecraft нет версий загрузчика.",
     "loaderInstallFailed": "Не удалось установить загрузчик: {{detail}}",
     "noCompatibleVersion": "У этого проекта нет версии под эту сборку.",
@@ -457,14 +457,15 @@
     "badNick": "Ник: 3–16 латинских букв, цифр или «_»",
     "playerNotFound": "Такого лицензионного игрока нет",
     "badPath": "Неверный путь",
-    "fileTooLarge": "Файл больше 2 МБ — откройте его в проводнике",
+    "fileTooLarge": "Файл больше 2 МБ — откройте его в файловом менеджере",
     "fileBinary": "Это не текстовый файл",
     "instanceRunning": "Сначала закройте игру",
     "optionsMissing": "В этой сборке ещё нет настроек — запустите игру хотя бы раз",
     "updateGameRunning": "Сначала закройте игру",
     "updateNone": "Обновлений нет",
     "updateBadAsset": "В релизе нет файла лаунчера",
-    "updateBadHash": "Файл обновления не прошёл проверку, попробуйте позже"
+    "updateBadHash": "Файл обновления не прошёл проверку, попробуйте позже",
+    "updatePackageManager": "Shard установлен системным пакетом — обновите его пакетным менеджером."
   },
   "instanceSettings": {
     "general": "Основное",
@@ -482,6 +483,7 @@
     "javaManaged": "(скачана Shard)",
     "javaCustom": "Свой путь",
     "javaPathPlaceholder": "C:\\Program Files\\Java\\bin\\javaw.exe",
+    "javaPathPlaceholderUnix": "/usr/lib/jvm/java-21-openjdk/bin/java",
     "javaCheck": "Проверить",
     "javaOk": "Работает: Java {{version}}, {{arch}}",
     "javaRescan": "Искать заново",
@@ -798,15 +800,15 @@
     },
     "discord": "Статус в Discord",
     "discordHint": "Показывать друзьям, что вы в Shard и во что играете",
-    "mcp": "MCP-сервер для ИИ",
-    "mcpHint": "Включите сервер и добавьте ссылку в локальный MCP-клиент, например LLM Studio → Коннекторы → Веб-сервер. Работает на этом компьютере, пока открыт Shard.",
+    "mcp": "MCP-сервер",
+    "mcpHint": "Локальный сервер Model Context Protocol: ИИ-ассистенты и агенты смогут смотреть сборки, ставить моды и запускать игру. Подходит любой MCP-клиент (Claude, Cursor, VS Code, LM Studio, Jan…) на этом компьютере, пока открыт Shard.",
     "mcpUrl": "Локальная ссылка MCP",
     "mcpCopyUrl": "Скопировать ссылку",
     "mcpRegenerate": "Создать новую ссылку",
     "mcpUrlCopied": "Ссылка MCP скопирована",
     "dataDir": "Папка с играми и данными",
     "dataHint": "Здесь лежат сборки, версии игры, Java и библиотеки. Можно перенести на любой диск.",
-    "dataPortable": "Портативная версия: данные всегда рядом с Shard.exe.",
+    "dataPortable": "Портативная версия: данные всегда рядом с лаунчером.",
     "dataOpen": "Открыть папку",
     "dataChange": "Перенести…",
     "dataReset": "Вернуть стандартную",
@@ -817,7 +819,20 @@
     "dataMove": "Перенести и перезапустить",
     "dataMoving": "Переношу…",
     "news": "Новости Minecraft",
-    "newsHint": "Новые версии и снапшоты на главной"
+    "newsHint": "Новые версии и снапшоты на главной",
+    "mcpSetup": "Формат подключения",
+    "mcpCopyConfig": "Скопировать",
+    "mcpConfigCopied": "Настройки скопированы",
+    "mcpFormats": {
+      "json": "HTTP (JSON)",
+      "claude": "Claude Code",
+      "stdio": "stdio"
+    },
+    "mcpFormatHints": {
+      "json": "Для клиентов с поддержкой удалённых (HTTP) MCP-серверов: добавьте в mcp.json или в настройки MCP клиента.",
+      "claude": "Выполните в терминале.",
+      "stdio": "Для клиентов, которые умеют запускать только локальные команды (например, Claude Desktop). Нужен Node.js."
+    }
   },
   "figura": {
     "emptyTitle": "Моделей Figura пока нет",
@@ -972,7 +987,7 @@
     "tunnelLinked": "playit.gg подключён",
     "tunnelOpening": "Открываем туннель…",
     "tunnelUnlink": "Отвязать playit.gg",
-    "firewall": "При первом запуске Windows спросит про доступ Java к сети — разрешите его.",
+    "firewall": "При первом запуске брандмауэр может спросить про доступ Java к сети — разрешите его.",
     "copied": "Скопировано",
     "panel": {
       "console": "Консоль",
@@ -1361,7 +1376,7 @@
   "files": {
     "root": "Сервер",
     "refresh": "Обновить",
-    "explorer": "В проводнике",
+    "explorer": "Открыть папку",
     "empty": "Папка пуста",
     "save": "Сохранить",
     "saved": "Файл сохранён",
@@ -1497,6 +1512,8 @@
     "installing": "Скачиваю…",
     "check": "Проверить обновления",
     "latest": "У вас последняя версия",
-    "starting": "Запускаю установку…"
+    "starting": "Запускаю установку…",
+    "openRelease": "Страница релиза",
+    "packageHint": "Shard установлен пакетом — обновите его пакетным менеджером (pacman/yay, dnf, apt) или скачайте новую версию со страницы релиза."
   }
 }

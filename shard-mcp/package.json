@@ -1,21 +1,9 @@
 {
   "name": "shard-launcher-mcp",
-  "version": "1.0.0",
-  "description": "MCP Server for Shard Launcher",
-  "main": "dist/index.js",
+  "version": "2.0.0",
+  "description": "stdio bridge to the MCP server built into Shard Launcher",
   "type": "module",
-  "scripts": {
-    "build": "tsc",
-    "start": "node dist/index.js",
-    "dev": "tsc && node dist/index.js"
-  },
-  "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.3",
-    "dotenv": "^16.4.5",
-    "zod": "^4.6.7"
-  },
-  "devDependencies": {
-    "@types/node": "^22.9.0",
-    "typescript": "^5.6.3"
-  }
+  "bin": { "shard-mcp": "shard-mcp.mjs" },
+  "engines": { "node": ">=18" },
+  "license": "MIT"
 }

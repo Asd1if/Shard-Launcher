@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { ProgressBar, type ByteProgress } from "@/components/ui/progress-bar";
 import { useTranslation } from "react-i18next";
-import { Check, Copy, FolderInput, FolderOpen, ImagePlus, Loader2, RotateCcw } from "lucide-react";
+import { Check, FolderInput, FolderOpen, ImagePlus, Loader2, RotateCcw } from "lucide-react";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,6 +20,7 @@ import { backend, isTauri, type DataDir, type OnLaunch, type Settings } from "@/
 import { errorText } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 import { CurseforgeKeyForm } from "./curseforge-key";
+import { McpConnect } from "./mcp-connect";
 
 const radio = (active: boolean) =>
   cn(
@@ -180,20 +181,6 @@ export function LauncherSettings() {
     }
   };
 
-  const mcpUrl = settings.mcpToken
-    ? `http://127.0.0.1:8542/mcp?token=${settings.mcpToken}`
-    : null;
-
-  const copyMcpUrl = async () => {
-    if (!mcpUrl) return;
-    try {
-      await navigator.clipboard.writeText(mcpUrl);
-      showToast(t("launcher.mcpUrlCopied"));
-    } catch (e) {
-      showToast(errorText(e));
-    }
-  };
-
   const save = async () => {
     setSaving(true);
     try {
@@ -294,26 +281,8 @@ export function LauncherSettings() {
               className="size-4 shrink-0 accent-[var(--brand)]"
             />
           </label>
-          {settings.mcpEnabled && mcpUrl && (
-            <div className="flex flex-wrap items-center gap-2 px-5">
-              <Input
-                type="password"
-                readOnly
-                value={mcpUrl}
-                aria-label={t("launcher.mcpUrl")}
-                className="h-9 min-w-0 flex-1 bg-surface-0 font-mono text-[12px]"
-              />
-              <Button variant="ghost" size="sm" onClick={() => void copyMcpUrl()}>
-                <Copy /> {t("launcher.mcpCopyUrl")}
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => void saveMcp(settings.mcpEnabled, generateMcpToken())}
-              >
-                <RotateCcw /> {t("launcher.mcpRegenerate")}
-              </Button>
-            </div>
+          {settings.mcpEnabled && settings.mcpToken && (
+            <McpConnect token={settings.mcpToken} onRegenerate={() => void saveMcp(settings.mcpEnabled, generateMcpToken())} />
           )}
         </div>
         <label className="flex cursor-pointer items-center justify-between gap-6 px-5 py-4">

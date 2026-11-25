@@ -1,4 +1,5 @@
-import { backend, type InstanceUpdate, type NewInstance } from "@/lib/backend";
+import { listen } from "@tauri-apps/api/event";
+import { backend, isTauri, type InstanceUpdate, type NewInstance } from "@/lib/backend";
 import { createStore } from "@/lib/store";
 import type { ByteProgress } from "@/components/ui/progress-bar";
 import type { Instance } from "./types";
@@ -50,3 +51,6 @@ export function byLastPlayed(a: Instance, b: Instance) {
 }
 
 void refreshInstances();
+
+// Сборки создаёт и меняет не только интерфейс, но и MCP-сервер (ИИ-ассистент)
+if (isTauri) void listen("instances-changed", () => void refreshInstances());

@@ -68,6 +68,7 @@ export function errorText(error: unknown) {
     update_none: "updateNone",
     update_bad_asset: "updateBadAsset",
     update_bad_hash: "updateBadHash",
+    update_package_manager: "updatePackageManager",
     file_too_large: "fileTooLarge",
     file_binary: "fileBinary",
     player_not_found: "playerNotFound",
